@@ -420,6 +420,7 @@ tap_result_t tapSpaceForward(image_config_t &img, uint32_t &actual, uint32_t cou
     // SPACE FILEMARKS operates on tape marks, not host block boundaries.
     // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
     // while the drive is configured for a fixed 512-byte block size.
+    // LOCATE retains the existing fixed-block accounting behavior.
     bool fixed = (blocksize != 0) && (!filemarks || locate);
 
     uint32_t records_read = 0;
@@ -498,6 +499,7 @@ tap_result_t tapSpaceBackward(image_config_t &img, uint32_t &actual, uint32_t co
     // SPACE FILEMARKS operates on tape marks, not host block boundaries.
     // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
     // while the drive is configured for a fixed 512-byte block size.
+    // LOCATE retains the existing fixed-block accounting behavior.
     bool fixed = (blocksize != 0) && (!filemarks || locate);
     uint32_t records_read = 0;
     tap_record_t record;
