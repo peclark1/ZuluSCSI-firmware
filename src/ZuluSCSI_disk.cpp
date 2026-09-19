@@ -4327,6 +4327,14 @@ void scsiDiskPoll()
 
     if (scsiDev.phase == STATUS && scsiDev.target)
     {
+        // Capture MODE SELECT parameter data for AS/400 IPL investigation.
+        // This is diagnostic-only and does not change command behavior.
+        if (scsiDev.cdb[0] == 0x15 && scsiDev.dataLen > 0)
+        {
+            dbgmsg("------ MODE SELECT(6) DATA OUT: ",
+                bytearray(scsiDev.data, scsiDev.dataLen));
+        }
+
         // Check if the command is affected by drive geometry.
         // Affected commands are:
         // 0x1A MODE SENSE command of pages 0x03 (device format), 0x04 (disk geometry) or 0x3F (all pages)
