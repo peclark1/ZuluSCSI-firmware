@@ -420,8 +420,15 @@ tap_result_t tapSpaceForward(image_config_t &img, uint32_t &actual, uint32_t cou
     // SPACE FILEMARKS operates on tape marks, not host block boundaries.
     // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
     // while the drive is configured for a fixed 512-byte block size.
+    // AS/400 also uses variable-length logical tape blocks while the device
+    // can still report the default 512-byte block size. For normal SPACE
+    // operations, count each SIMH .TAP record as one logical block.
     // LOCATE retains the existing fixed-block accounting behavior.
     bool fixed = (blocksize != 0) && (!filemarks || locate);
+    if (!locate && (img.quirks & S2S_CFG_QUIRKS_AS400))
+    {
+        fixed = false;
+    }
 
     uint32_t records_read = 0;
     tap_record_t record;
@@ -499,8 +506,15 @@ tap_result_t tapSpaceBackward(image_config_t &img, uint32_t &actual, uint32_t co
     // SPACE FILEMARKS operates on tape marks, not host block boundaries.
     // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
     // while the drive is configured for a fixed 512-byte block size.
+    // AS/400 also uses variable-length logical tape blocks while the device
+    // can still report the default 512-byte block size. For normal SPACE
+    // operations, count each SIMH .TAP record as one logical block.
     // LOCATE retains the existing fixed-block accounting behavior.
     bool fixed = (blocksize != 0) && (!filemarks || locate);
+    if (!locate && (img.quirks & S2S_CFG_QUIRKS_AS400))
+    {
+        fixed = false;
+    }
     uint32_t records_read = 0;
     tap_record_t record;
     bool started_read;
