@@ -196,6 +196,18 @@ static void printNewPhase(int phase, bool initiator = false)
                                    " syncPeriod ", (int)scsiDev.target->syncPeriod);
             else
                 dbgmsg("---- DATA_IN");
+
+            // For the AS/400 tape IPL investigation, log the actual REQUEST
+            // SENSE payload returned by sequential devices.  Normally DATA_IN
+            // payloads are summarized only by byte count/checksum because they
+            // may be very large; REQUEST SENSE is tiny and the exact ILI/info
+            // bytes are important here.
+            if (!initiator && scsiDev.target &&
+                scsiDev.cdb[0] == 0x03 &&
+                scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL)
+            {
+                g_LogData = true;
+            }
             break;
         
         case DATA_OUT:
