@@ -561,8 +561,9 @@ static void process_Command()
 			scsiDev.data[6] = transfer.lba;
 
 
-			// Additional bytes if there are errors to report
-			scsiDev.data[7] = 0x18; // additional length
+			// Real IBM 0671 S15-200 returns 0x10 here; match the captured AS/400 disk
+			// REQUEST SENSE response rather than advertising 0x18 additional bytes.
+			scsiDev.data[7] = 0x10; // additional length
 			scsiDev.data[12] = scsiDev.target->sense.asc >> 8;
 			scsiDev.data[13] = scsiDev.target->sense.asc;
 
