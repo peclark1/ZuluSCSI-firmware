@@ -765,8 +765,18 @@ static void tapReadFixed(image_config_t &img, uint32_t blocks)
 
 static void tapReadVariable(image_config_t &img, uint32_t block_size, bool sili) {
     tap_record_t record;
-    tap_result_t result = tapReadRecordForward(img, record, scsiDev.data, block_size, false);
     tape_drive_t *tape_info = g_tape_drive[img.scsiId & S2S_CFG_TARGET_ID_BITS];
+    uint32_t file_pos_start = tape_info->file_pos;
+    tap_result_t result = tapReadRecordForward(img, record, scsiDev.data, block_size, false);
+
+    // Diagnostic logging for the AS/400 D-mode IPL investigation.  Keep this
+    // observational only: show what the host requested, what the .TAP record
+    // actually contained, and how far the virtual tape advanced.
+    dbgmsg("------ TAP variable read: requested=", (int)block_size,
+           " record_len=", (int)record.length,
+           " result=", (int)result,
+           " SILI=", sili ? 1 : 0,
+           " file_pos=", (int)file_pos_start, "->", (int)tape_info->file_pos);
     if (result == TAP_OK) {
         tape_info->logical_object_number++;
         scsiEnterPhase(DATA_IN);
@@ -841,6 +851,16 @@ static void tapReadVariable(image_config_t &img, uint32_t block_size, bool sili)
             scsiDev.phase = STATUS;
         }
     }
+
+    dbgmsg("------ TAP variable state: status=", (int)scsiDev.status,
+           " sense=", (int)scsiDev.target->sense.code,
+           " asc=", (uint32_t)scsiDev.target->sense.asc,
+           " ILI=", scsiDev.target->sense.ili ? 1 : 0,
+           " filemark=", scsiDev.target->sense.filemark ? 1 : 0,
+           " EOM=", scsiDev.target->sense.eom ? 1 : 0,
+           " info=", (uint32_t)scsiDev.target->sense.info,
+           " file_pos=", (int)tape_info->file_pos);
+
     platform_reset_watchdog();
 }
 // .TAP-aware read function
