@@ -417,7 +417,10 @@ tap_result_t tapWriteEraseGap(image_config_t &img) {
 tap_result_t tapSpaceForward(image_config_t &img, uint32_t &actual, uint32_t count, bool filemarks, bool locate, bool blk_type_vendor) {
     tape_drive_t *tape_info = g_tape_drive[img.scsiId & S2S_CFG_TARGET_ID_BITS];
     uint32_t blocksize = scsiDev.target->liveCfg.bytesPerSector;
-    bool fixed = (blocksize != 0);
+    // SPACE FILEMARKS operates on tape marks, not host block boundaries.
+    // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
+    // while the drive is configured for a fixed 512-byte block size.
+    bool fixed = (blocksize != 0) && (!filemarks || locate);
 
     uint32_t records_read = 0;
     tap_record_t record;
@@ -492,7 +495,10 @@ tap_result_t tapSpaceForward(image_config_t &img, uint32_t &actual, uint32_t cou
 tap_result_t tapSpaceBackward(image_config_t &img, uint32_t &actual, uint32_t count, bool filemarks, bool locate, bool blk_type_vendor) {
     tape_drive_t *tape_info = g_tape_drive[img.scsiId & S2S_CFG_TARGET_ID_BITS];
     uint32_t blocksize = scsiDev.target->liveCfg.bytesPerSector;
-    bool fixed = (blocksize != 0);
+    // SPACE FILEMARKS operates on tape marks, not host block boundaries.
+    // IBM standard-label tapes can contain 80-byte VOL/HDR/EOF records even
+    // while the drive is configured for a fixed 512-byte block size.
+    bool fixed = (blocksize != 0) && (!filemarks || locate);
     uint32_t records_read = 0;
     tap_record_t record;
     bool started_read;
