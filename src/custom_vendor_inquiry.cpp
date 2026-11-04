@@ -842,28 +842,12 @@ bool isAS400CISCTapeIdentity(uint8_t scsiId)
 
 bool getAS400CISCTapeVendorPage(uint8_t page, uint8_t *buf, uint8_t *length)
 {
-    struct VendorPage { uint8_t page; const uint8_t *data; size_t len; };
-    static const VendorPage pages[] = {
-        {0x00, AS400TapeCISCVendorPage00, AS400TapeCISCVendorPage00Len},
-        {0x03, AS400TapeCISCVendorPage03, AS400TapeCISCVendorPage03Len},
-        {0x80, AS400TapeCISCVendorPage80, AS400TapeCISCVendorPage80Len},
-        {0x81, AS400TapeCISCVendorPage81, AS400TapeCISCVendorPage81Len},
-        {0x82, AS400TapeCISCVendorPage82, AS400TapeCISCVendorPage82Len},
-        {0xC0, AS400TapeCISCVendorPageC0, AS400TapeCISCVendorPageC0Len},
-        {0xC1, AS400TapeCISCVendorPageC1, AS400TapeCISCVendorPageC1Len},
-        {0xC2, AS400TapeCISCVendorPageC2, AS400TapeCISCVendorPageC2Len},
-        {0xC3, AS400TapeCISCVendorPageC3, AS400TapeCISCVendorPageC3Len},
-        {0xC4, AS400TapeCISCVendorPageC4, AS400TapeCISCVendorPageC4Len},
-    };
-    for (const VendorPage &vp : pages)
-    {
-        if (vp.page == page)
-        {
-            memcpy(buf, vp.data, vp.len);
-            *length = (uint8_t)vp.len;
-            return true;
-        }
-    }
+    // The original TDC 3600 capture did not probe the later IBM 4100's
+    // proprietary INQUIRY request form. Never substitute IBM 4100 pages
+    // for a TDC 3600. A failed probe is logged by the normal SCSI path.
+    (void)page;
+    (void)buf;
+    (void)length;
     return false;
 }
 
@@ -881,7 +865,7 @@ int getAS400TapeMediumType(uint8_t scsiId)
 
     // No cartridge in the drive: ejected through the media menu/eject button.
     if (scsiDiskGetImageConfig(id).ejected)
-        return 0x00;
+        return g_builtin[id] == BUILTIN_AS400_TAPE_CISC ? 0x01 : 0x00;
 
     // An explicit MediumType= in this ID's ini section takes precedence over
     // the captured drive's default.
