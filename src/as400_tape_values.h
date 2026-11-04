@@ -19,6 +19,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 **/
 
+// B10 EXPERIMENT ONLY: the AS400_CISC tape identity in this branch is
+// the user's original SCSI-1 Tandberg TDC 3600, not the normal QIC-1000.
 // Real AS/400 tape drive identity captures, mirroring as400_values.h's shape
 // for disk. Two variants, selected by the same Device=AS400_CISC/AS400_PPC
 // preset already used for disk block-size defaults -- see
