@@ -1332,8 +1332,26 @@ void scsiDiskCloseTray(image_config_t &img)
 
         if (scsiDev.boardCfg.flags & S2S_CFG_ENABLE_UNIT_ATTENTION)
         {
-            dbgmsg("------ Posting UNIT ATTENTION after medium change");
-            scsiDev.targets[target].unitAttention = NOT_READY_TO_READY_TRANSITION_MEDIUM_MAY_HAVE_CHANGED;
+#ifdef PLATFORM_AS400
+            // During a 9404-B10 CISC LIC install, the host unloads tape 1
+            // and polls for tape 2. It accepts the initial NOT READY /
+            // MEDIUM NOT PRESENT (02/3A00), but a follow-up UNIT ATTENTION /
+            // MEDIUM MAY HAVE CHANGED (06/2800) causes SRC 6346/3010.
+            // Suppress only that media-change notification for the captured
+            // CISC tape identity; retain it for disk and all other devices.
+            // This is an on-hardware diagnostic compatibility workaround.
+            if (img.deviceType == S2S_CFG_SEQUENTIAL &&
+                img.quirks == S2S_CFG_QUIRKS_AS400 &&
+                isAS400CISCTapeIdentity(target))
+            {
+                dbgmsg("------ Suppressing medium-change UNIT ATTENTION for AS/400 CISC tape ID ", (int)target);
+            }
+            else
+#endif
+            {
+                dbgmsg("------ Posting UNIT ATTENTION after medium change");
+                scsiDev.targets[target].unitAttention = NOT_READY_TO_READY_TRANSITION_MEDIUM_MAY_HAVE_CHANGED;
+            }
         }
     }
 }
