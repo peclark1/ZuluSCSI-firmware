@@ -946,6 +946,28 @@ static void doModeSelect(void)
 			{
 			case 0x02: // Disconnect-Reconnect Page
 			{
+#ifdef PLATFORM_AS400
+				// IBM 0671S15 CISC disks use a captured two-byte form of
+				// mode page 0x02 (01 80), not the standard 14-byte SCSI-2
+				// Disconnect-Reconnect page. A B10 sends it with PF=1, SP=1
+				// during LIC installation; rejecting it with ASC/ASCQ 26/00
+				// leads to repeated MODE SELECT retries and SRC 6100/3100.
+				// Only accept the captured form on a profiled 520-byte AS/400
+				// fixed disk; leave standard parsing unchanged everywhere else.
+				if (pageLen == 0x02 &&
+					scsiDev.target->cfg->deviceType == S2S_CFG_FIXED &&
+					scsiDev.data[idx+2] == 0x01 &&
+					scsiDev.data[idx+3] == 0x80)
+				{
+					uint32_t as400BlockSize = 0, as400Sectors = 0;
+					if (getAS400ProfileCapacity(scsiDev.target->targetId,
+						&as400BlockSize, &as400Sectors) &&
+						as400BlockSize == 520)
+					{
+						break; // IBM-specific page has no standard disconnect fields.
+					}
+				}
+#endif
 				if (pageLen != 0x0E) goto bad;
 
 				uint16_t disconnectTimeLimit =
