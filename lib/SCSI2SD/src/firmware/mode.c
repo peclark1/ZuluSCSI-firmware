@@ -336,6 +336,31 @@ static void pageIn(int pc, int dataIdx, const uint8_t* pageData, int pageLen)
 static void doModeSense(int sixByteCmd, int dbd, int pc, int pageCode, int allocLength)
 {
 #ifdef PLATFORM_AS400
+	// B10 TDC 3600 experiment: SCSI-1 device reports its 24-byte MODE
+	// SENSE(6) response for page 0x00. Our real drive rejected the newer
+	// device-configuration (0x10) and all-pages (0x3F) requests. Do not
+	// answer these with the later IBM 4100/QIC-1000 page tables.
+	if (sixByteCmd && scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 &&
+		scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL &&
+		isAS400CISCTapeIdentity(scsiDev.target->cfg->scsiId) &&
+		(pageCode == 0x00 || pageCode == 0x10 || pageCode == 0x3F))
+	{
+		if (pageCode == 0x00 && pc == 0x00)
+		{
+			uint16_t customLen = 0;
+			if (getCustomModeSense(scsiDev.target->cfg->scsiId, scsiDev.data, &customLen))
+			{
+				scsiDev.dataLen = customLen > allocLength ? allocLength : customLen;
+				scsiDev.phase = DATA_IN;
+				return;
+			}
+		}
+		scsiDev.status = CHECK_CONDITION;
+		scsiDev.target->sense.code = ILLEGAL_REQUEST;
+		scsiDev.target->sense.asc = INVALID_FIELD_IN_CDB;
+		scsiDev.phase = STATUS;
+		return;
+	}
 	if (sixByteCmd && pageCode == 0x3F && scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 && scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
 	{
 		// A loaded AS/400 disk profile (see custom_vendor_inquiry.cpp) can
