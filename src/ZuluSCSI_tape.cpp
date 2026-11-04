@@ -1757,6 +1757,14 @@ extern "C" int scsiTapeCommand()
         // READ BLOCK LIMITS
         uint32_t max_block_size = scsiTapeMaxSectorSize();
         uint32_t min_block_size = scsiTapeMinSectorSize();
+#ifdef PLATFORM_AS400
+        // Exact READ BLOCK LIMITS from the original TDC 3600: 00 00 80 00 00 01.
+        if (isAS400CISCTapeIdentity(scsiDev.target->cfg->scsiId))
+        {
+            max_block_size = 32768;
+            min_block_size = 1;
+        }
+#endif
         scsiDev.data[0] = 0; // Reserved
         scsiDev.data[1] = (max_block_size >> 16) & 0xFF; // Maximum block length (MSB)
         scsiDev.data[2] = (max_block_size >>  8) & 0xFF;
