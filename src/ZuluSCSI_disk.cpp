@@ -1323,6 +1323,16 @@ void scsiDiskCloseTray(image_config_t &img)
     if (img.ejected)
     {
         uint8_t target = img.scsiId & S2S_CFG_TARGET_ID_BITS;
+        // A finite tape set remains unloaded after its last IMG entry.
+        // Do not silently reinsert the prior volume on INQUIRY or START.
+        if (img.deviceType == S2S_CFG_SEQUENTIAL &&
+            !g_scsi_settings.getDevice(target)->tapeImageLoop &&
+            img.image_index > IMAGE_INDEX_MAX)
+        {
+            dbgmsg("------ Tape image sequence exhausted on ID ", (int)target,
+                   "; leaving medium absent");
+            return;
+        }
         dbgmsg("------ Device close tray on ID ", (int)target);
         img.ejected = false;
         if (img.deviceType == S2S_CFG_SEQUENTIAL)
@@ -1400,7 +1410,17 @@ void doPerformEject(image_config_t &img)
             blinkStatus(g_scsi_settings.getDevice(target)->ejectBlinkTimes, g_scsi_settings.getDevice(target)->ejectBlinkPeriod);;
             dbgmsg("------ Device open tray on ID ", (int)target);
             img.ejected = true;
-            switchNextImage(img); // Switch media for next time
+            if (!switchNextImage(img) &&
+                img.deviceType == S2S_CFG_SEQUENTIAL &&
+                !g_scsi_settings.getDevice(target)->tapeImageLoop &&
+                img.image_index > IMAGE_INDEX_MAX)
+            {
+                // The host unloaded the last tape. Close its file so the
+                // virtual drive reports no medium rather than the old tape.
+                img.file.close();
+                logmsg("Tape image sequence exhausted on ID ", (int)target,
+                       "; no next image, medium remains absent");
+            }
             if (g_scsi_settings.getDevice(target)->reinsertImmediately)
             {
                 scsiDiskCloseTray(img);
@@ -1668,6 +1688,14 @@ int scsiDiskGetNextImageName(image_config_t &img, char *buf, size_t buflen)
     }
     else
     {
+        // Only sequential targets may opt out of the standard IMG wraparound.
+        // IMAGE_INDEX_MAX is used at startup to select IMG0; MAX+1 is
+        // reserved as the persistent exhausted state after the final eject.
+        const bool finiteTapeSet =
+            img.deviceType == S2S_CFG_SEQUENTIAL &&
+            !g_scsi_settings.getDevice(target_idx)->tapeImageLoop;
+        if (finiteTapeSet && img.image_index > IMAGE_INDEX_MAX)
+            return 0;
         while (1)
         {
             img.image_index++;
@@ -1693,10 +1721,15 @@ int scsiDiskGetNextImageName(image_config_t &img, char *buf, size_t buflen)
             }
             else if (img.image_index > 0)
             {
-                // there may be more than one image but we've ran out of new ones
-                // wrap back to the first image
+                if (finiteTapeSet)
+                {
+                    // Do not present IMG0 again after the final volume.
+                    img.image_index = IMAGE_INDEX_MAX + 1;
+                    buf[0] = '\0';
+                    return 0;
+                }
+                // Standard behavior: wrap back to first image.
                 img.image_index = -1;
-                // Rerun loop
             }
             else
             {
