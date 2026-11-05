@@ -579,6 +579,7 @@ static void readIniSCSIDeviceSetting(scsi_device_settings_t &cfg, const char *se
     cfg.reinsertAfterEject =  log_ini_getbool(section, "ReinsertAfterEject", cfg.reinsertAfterEject, CONFIGFILE, log_settings);
     cfg.reinsertImmediately =  log_ini_getbool(section, "ReinsertImmediately", cfg.reinsertImmediately, CONFIGFILE, log_settings);
     cfg.ejectOnStop =  log_ini_getbool(section, "EjectOnStop", cfg.ejectOnStop, CONFIGFILE, log_settings);
+    cfg.tapeImageLoop = log_ini_getbool(section, "TapeImageLoop", cfg.tapeImageLoop, CONFIGFILE, log_settings);
     cfg.keepCurrentImageOnBusReset =  log_ini_getbool(section, "KeepCurrentImageOnBusReset", cfg.keepCurrentImageOnBusReset, CONFIGFILE, log_settings);
     cfg.disableMacSanityCheck =  log_ini_getbool(section, "DisableMacSanityCheck", cfg.disableMacSanityCheck, CONFIGFILE, log_settings);
 
@@ -742,6 +743,7 @@ scsi_system_settings_t *ZuluSCSISettings::initSystem(const char *presetName, boo
     cfgDev.tapeDensity = 0x10; // Default density: QIC-150
     cfgDev.tapeBufferedMode = 0x00; // Write Good status only after all data has been written to tape
     cfgDev.tapeImageFormat = 0; // Default: conventional SIMH .tap (even-length padding)
+    cfgDev.tapeImageLoop = true; // Default: preserve legacy IMG wraparound
 
 
     // System-specific defaults
