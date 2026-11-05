@@ -157,10 +157,11 @@ bool tapeIsTap()
 }
 
 // The .tap extension is shared by padded SIMH and unpadded E11 images.
-// Use the explicit setting on this SCSI target, including after media swaps.
+// The effective format is selected when each tape image is mounted,
+// allowing a numbered IMGn override without changing other volumes.
 static bool tapUsesE11(const image_config_t &img)
 {
-    return g_scsi_settings.getDevice(img.scsiId & S2S_CFG_TARGET_ID_BITS)->tapeImageFormat == 1;
+    return img.mountedTapeImageFormat == 1;
 }
 
 // E11-era Bitsavers images may end with a repeated 0x0000FFFF word run and

@@ -567,6 +567,36 @@ bool scsiDiskOpenHDDImage(int target_idx, const char *filename, int scsi_lun, in
     img.cdrom_track_end_lba = 0;
     scsiDiskSetImageConfig(target_idx);
 
+    // Re-evaluate the tape framing on every image open, including IMGn swaps.
+    // TapeImageFormatN overrides the target default only for image N.
+    // Other images continue using TapeImageFormat (backward compatible).
+    if (img.deviceType == S2S_CFG_SEQUENTIAL)
+    {
+        img.mountedTapeImageFormat = g_scsi_settings.getDevice(target_idx)->tapeImageFormat;
+        if (img.image_index >= 0 && img.image_index <= IMAGE_INDEX_MAX)
+        {
+            char section[SCSI_INI_SECTION_SIZE];
+            char key[32];
+            char value[16];
+            scsiGetIniSection(target_idx, section, sizeof(section));
+            snprintf(key, sizeof(key), "TapeImageFormat%d", img.image_index);
+            if (ini_haskey(section, key, CONFIGFILE))
+            {
+                ini_gets(section, key, "", value, sizeof(value), CONFIGFILE);
+                if (strcasecmp(value, "E11") == 0)
+                    img.mountedTapeImageFormat = 1;
+                else if (strcasecmp(value, "SIMH") == 0)
+                    img.mountedTapeImageFormat = 0;
+                else
+                    logmsg("---- WARNING: unknown ", key, " '", value,
+                           "'; using TapeImageFormat default");
+            }
+        }
+        logmsg("---- Tape framing for SCSI ID ", target_idx, " image ",
+               img.image_index, ": ",
+               img.mountedTapeImageFormat == 1 ? "E11" : "SIMH");
+    }
+
     // PART:n resolves to a RAW:start:end mapping via the SD card's own
     // MBR/GPT partition table (see ZuluSCSI_partition_table.h) -- checked
     // and validated here, before ImageBackingStore ever gets involved, so
