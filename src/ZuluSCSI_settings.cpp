@@ -593,6 +593,21 @@ static void readIniSCSIDeviceSetting(scsi_device_settings_t &cfg, const char *se
     cfg.tapeDensity = log_ini_getl(section, "TapeDensity", cfg.tapeDensity, CONFIGFILE, log_settings, &log_getl_8bit_hex);
     cfg.tapeBufferedMode = log_ini_getl(section, "TapeBufferedMode", cfg.tapeBufferedMode, CONFIGFILE, log_settings, &log_getl_8bit_hex);
 
+    // E11 and SIMH .tap images have the same record headers/trailers, but
+    // only SIMH pads odd-length data records. Choose explicitly per target;
+    // never infer framing from the .tap extension or silently alter media.
+    if (ini_haskey(section, "TapeImageFormat", CONFIGFILE))
+    {
+        log_ini_gets(section, "TapeImageFormat", "SIMH", tmp, sizeof(tmp), CONFIGFILE, log_settings);
+        if (strcasecmp(tmp, "E11") == 0)
+            cfg.tapeImageFormat = 1;
+        else if (strcasecmp(tmp, "SIMH") == 0)
+            cfg.tapeImageFormat = 0;
+        else
+            logmsg("---- WARNING: unknown TapeImageFormat '", tmp, "' in [", section,
+                   "]; use SIMH or E11 (keeping current setting)");
+    }
+
 #ifdef PLATFORM_AS400
     log_ini_gets(section, "AlignUnalignedAccesses", "", tmp, sizeof(tmp), CONFIGFILE, log_settings);
     if (tmp[0])
@@ -726,6 +741,7 @@ scsi_system_settings_t *ZuluSCSISettings::initSystem(const char *presetName, boo
     cfgDev.tapeLengthMB = 0; // Default tape length in MB is unlimited
     cfgDev.tapeDensity = 0x10; // Default density: QIC-150
     cfgDev.tapeBufferedMode = 0x00; // Write Good status only after all data has been written to tape
+    cfgDev.tapeImageFormat = 0; // Default: conventional SIMH .tap (even-length padding)
 
 
     // System-specific defaults
