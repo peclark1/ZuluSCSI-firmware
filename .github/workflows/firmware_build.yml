@@ -36,6 +36,12 @@ jobs:
         run: |
           pip install -U platformio
 
+      - name: Test B10 MODE SELECT and E11 framing
+        run: |
+          cd ZuluSCSI
+          python3 utils/test_as400_mode_select_length.py
+          python3 utils/test_e11_tapes.py
+
       - name: Build firmware
         run: |
           cd ZuluSCSI
