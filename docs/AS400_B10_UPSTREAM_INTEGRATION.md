@@ -10,18 +10,24 @@ default. The early B10's SCSI-1 Tandberg TDC 3600 is **opt-in**:
 ```ini
 [SCSI]
 System = AS400_CISC
-AlignUnalignedAccesses = off
 
 [SCSI0]
 Type = 5
 Device = "AS400_CISC"
 AS400_TapeModel = TDC3600
+TapeDensity = 0x0F
 TapeImageFormat = E11
 EjectButton = 1
 ```
 
 Omit `AS400_TapeModel` or set `IBM4100` to preserve the original
 IBM 4100 SCSI inquiry, sense, medium type, and vendor pages.
+
+Keep existing disk sections `[SCSI5]` and `[SCSI6]` and their **known-good
+image format/alignments** unchanged. In particular, these original packed
+520-byte B10 disk images used `AlignUnalignedAccesses = off` per disk.
+Changing alignment to `auto` or `cisc` without converting the image alters
+the on-SD-card representation and can corrupt reads/writes.
 
 TDC 3600 mode uses its captured 51-byte standard INQUIRY, 24-byte
 MODE SENSE(6) page zero, READ BLOCK LIMITS 32768/1, medium type
