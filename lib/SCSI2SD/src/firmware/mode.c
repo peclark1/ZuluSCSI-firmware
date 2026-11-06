@@ -336,6 +336,29 @@ static void pageIn(int pc, int dataIdx, const uint8_t* pageData, int pageLen)
 static void doModeSense(int sixByteCmd, int dbd, int pc, int pageCode, int allocLength)
 {
 #ifdef PLATFORM_AS400
+	// The B10 SCSI-1 TDC 3600 supports its captured page-zero response,
+	// not the newer IBM 4100 page 0x10 and all-pages convention.
+	if (sixByteCmd && scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 &&
+		scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL &&
+		isAS400TDC3600TapeIdentity(scsiDev.target->cfg->scsiId) &&
+		(pageCode == 0x00 || pageCode == 0x10 || pageCode == 0x3F))
+	{
+		if (pageCode == 0x00 && pc == 0x00)
+		{
+			uint16_t customLen = 0;
+			if (getCustomModeSense(scsiDev.target->cfg->scsiId, scsiDev.data, &customLen))
+			{
+				scsiDev.dataLen = customLen > allocLength ? allocLength : customLen;
+				scsiDev.phase = DATA_IN;
+				return;
+			}
+		}
+		scsiDev.status = CHECK_CONDITION;
+		scsiDev.target->sense.code = ILLEGAL_REQUEST;
+		scsiDev.target->sense.asc = INVALID_FIELD_IN_CDB;
+		scsiDev.phase = STATUS;
+		return;
+	}
 	if (sixByteCmd && pageCode == 0x3F && scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 && scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
 	{
 		// A loaded AS/400 disk profile (see custom_vendor_inquiry.cpp) can

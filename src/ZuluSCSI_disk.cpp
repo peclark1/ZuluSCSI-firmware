@@ -1384,9 +1384,9 @@ void scsiDiskCloseTray(image_config_t &img)
             // This is an on-hardware diagnostic compatibility workaround.
             if (img.deviceType == S2S_CFG_SEQUENTIAL &&
                 img.quirks == S2S_CFG_QUIRKS_AS400 &&
-                isAS400CISCTapeIdentity(target))
+                isAS400TDC3600TapeIdentity(target))
             {
-                dbgmsg("------ Suppressing medium-change UNIT ATTENTION for AS/400 CISC tape ID ", (int)target);
+                dbgmsg("------ Suppressing medium-change UNIT ATTENTION for B10 TDC 3600 tape ID ", (int)target);
             }
             else
 #endif

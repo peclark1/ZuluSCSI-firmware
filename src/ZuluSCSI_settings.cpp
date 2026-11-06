@@ -610,6 +610,18 @@ static void readIniSCSIDeviceSetting(scsi_device_settings_t &cfg, const char *se
     }
 
 #ifdef PLATFORM_AS400
+    // An explicit TDC3600 opt-in does not change other AS400_CISC tape IDs.
+    if (ini_haskey(section, "AS400_TapeModel", CONFIGFILE))
+    {
+        log_ini_gets(section, "AS400_TapeModel", "", tmp, sizeof(tmp), CONFIGFILE, log_settings);
+        if (strcasecmp(tmp, "TDC3600") == 0)
+            cfg.as400TapeModel = 1;
+        else if (strcasecmp(tmp, "IBM4100") == 0)
+            cfg.as400TapeModel = 0;
+        else
+            logmsg("---- WARNING: unknown AS400_TapeModel '", tmp,
+                   "'; expected IBM4100 or TDC3600 (using existing setting)");
+    }
     log_ini_gets(section, "AlignUnalignedAccesses", "", tmp, sizeof(tmp), CONFIGFILE, log_settings);
     if (tmp[0])
     {
@@ -744,6 +756,7 @@ scsi_system_settings_t *ZuluSCSISettings::initSystem(const char *presetName, boo
     cfgDev.tapeBufferedMode = 0x00; // Write Good status only after all data has been written to tape
     cfgDev.tapeImageFormat = 0; // Default: conventional SIMH .tap (even-length padding)
     cfgDev.tapeImageLoop = true; // Default: preserve legacy IMG wraparound
+    cfgDev.as400TapeModel = 0; // Default AS400_CISC tape: IBM 4100
 
 
     // System-specific defaults
