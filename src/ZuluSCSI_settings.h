@@ -211,6 +211,10 @@ typedef struct __attribute__((__packed__)) scsi_device_settings_t
     uint8_t tapeBufferedMode;
 
     uint8_t alignUnalignedAccesses; // memory allocation for zuluscsi_align_unaligned_t enum
+    // Per-target tape image record framing: 0=padded SIMH (default), 1=unpadded E11.
+    // Keep new settings at the end: this packed struct is stored in flash.
+    uint8_t tapeImageFormat;
+    bool tapeImageLoop; // false: stop after last IMG for a sequential target
 } scsi_device_settings_t;
 
 
