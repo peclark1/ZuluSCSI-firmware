@@ -319,9 +319,11 @@ void serialMediaMenuPoll()
     char new_path[MAX_FILE_PATH + 1];
     // Change state first: no repeat creation even on an SD error.
     s_state = MEDIA_MENU_DEVICE_ACTIONS;
+    const uint32_t create_start_ms = millis();
     const ControlTapeCreateResult result =
         controlCreateEmptyTapeImage(id, s_create_name,
                                     new_path, sizeof(new_path));
+    const uint32_t create_elapsed_ms = (uint32_t)(millis() - create_start_ms);
     switch (result)
     {
         case CONTROL_TAPE_CREATE_OK:
@@ -344,6 +346,12 @@ void serialMediaMenuPoll()
         default:
             serial_println("  Not created: SD filesystem error.");
             break;
+    }
+    if (result == CONTROL_TAPE_CREATE_OK)
+    {
+        serial_out("  SD metadata operation took ");
+        serial_out_int((int)create_elapsed_ms);
+        serial_println(" ms (host latency still requires validation).");
     }
     show_device_actions();
 }
