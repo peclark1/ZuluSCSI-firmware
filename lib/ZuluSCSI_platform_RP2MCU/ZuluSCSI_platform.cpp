@@ -2085,6 +2085,7 @@ static uint32_t s_live_last_report_ms = 0;
 static LiveImageIoCounters s_live_previous[S2S_MAX_TARGETS] = {};
 static uint32_t s_live_previous_ms[S2S_MAX_TARGETS] = {};
 static uint64_t s_live_previous_size[S2S_MAX_TARGETS] = {};
+static bool s_live_has_previous_size[S2S_MAX_TARGETS] = {};
 static int s_live_row = S2S_MAX_TARGETS + 1; // -1 header; 0..N-1 devices; N footer
 static bool s_live_detail = false;
 static char s_live_line[192] = {};
@@ -2114,8 +2115,8 @@ static void liveMonitorStart()
     {
         s_live_previous[id] = liveImageIoSnapshot(id);
         s_live_previous_ms[id] = now;
-        image_config_t &img = scsiDiskGetImageConfig(id);
-        s_live_previous_size[id] = img.file.isOpen() ? img.file.size() : 0;
+        // Defer any image metadata access until the bus is free.
+        s_live_has_previous_size[id] = false;
     }
 }
 
@@ -2205,8 +2206,8 @@ static void liveMonitorPoll()
         const uint64_t writeDelta = current.writeBytes - s_live_previous[id].writeBytes;
         const uint64_t readOps = current.readCalls - s_live_previous[id].readCalls;
         const uint64_t writeOps = current.writeCalls - s_live_previous[id].writeCalls;
-        const uint64_t readRate = (readDelta / elapsed) * 1000 / 1024;
-        const uint64_t writeRate = (writeDelta / elapsed) * 1000 / 1024;
+        const uint64_t readRate = (readDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
+        const uint64_t writeRate = (writeDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
         const char *kind = img.deviceType == S2S_CFG_FIXED ?
                            "Disk" : controlGetDeviceTypeName(id);
         snprintf(line, sizeof(line),
@@ -2224,7 +2225,8 @@ static void liveMonitorPoll()
         const uint64_t size = img.file.size();
         const uint64_t before = s_live_previous_size[id];
         const bool grew = size >= before;
-        const uint64_t difference = grew ? size - before : before - size;
+        const uint64_t difference = s_live_has_previous_size[id] ?
+            (grew ? size - before : before - size) : 0;
         char filename[MAX_FILE_PATH + 1] = {};
         if (!img.file.getFilename(filename, sizeof(filename)))
         {
@@ -2245,6 +2247,7 @@ static void liveMonitorPoll()
                  (unsigned long long)(difference / 1048576ULL),
                  (unsigned long long)((difference % 1048576ULL) * 10 / 1048576ULL));
         s_live_previous_size[id] = size;
+        s_live_has_previous_size[id] = true;
         s_live_detail = false;
         s_live_row++;
     }
