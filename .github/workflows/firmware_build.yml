@@ -46,6 +46,13 @@ jobs:
           cd ZuluSCSI
           python3 utils/test_as400_mode_select_length.py
 
+      - name: Test live serial monitor counters (native C++)
+        run: |
+          cd ZuluSCSI
+          g++ -std=c++11 -Wall -Wextra -Werror -Itest/stubs \
+              test/live_monitor_counters.cpp -o /tmp/zulu-live-test
+          /tmp/zulu-live-test
+
       - name: Build firmware
         run: |
           cd ZuluSCSI
