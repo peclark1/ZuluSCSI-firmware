@@ -9,6 +9,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 #include <scsi2sd.h>
 
 struct LiveImageIoCounters
@@ -48,3 +49,10 @@ inline LiveImageIoCounters liveImageIoSnapshot(uint8_t scsiId)
     LiveImageIoCounters empty = {};
     return scsiId < S2S_MAX_TARGETS ? liveImageIoCounters()[scsiId] : empty;
 }
+
+// Read current open-image metadata without enumerating directories or touching
+// SCSI media state. Implemented in ZuluSCSI_disk.cpp to keep disk-specific
+// headers and SdFs linkage out of the serial platform module. Call only when
+// the SCSI bus is idle; returns false if the target has no open image.
+bool liveImageIoGetStatus(uint8_t scsiId, char *name, size_t nameCapacity,
+                          uint64_t *logicalSize, uint8_t *deviceType);
