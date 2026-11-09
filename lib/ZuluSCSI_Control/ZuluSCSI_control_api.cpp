@@ -386,6 +386,14 @@ bool controlInsertMedia(uint8_t scsi_id)
     return true;
 }
 
+bool controlIsTapeDevice(uint8_t scsi_id)
+{
+    if (scsi_id >= S2S_MAX_TARGETS) return false;
+    const image_config_t &img = scsiDiskGetImageConfig(scsi_id);
+    return (S2S_CFG_TYPE)img.deviceType == S2S_CFG_SEQUENTIAL &&
+           (img.scsiId & S2S_CFG_TARGET_ENABLED);
+}
+
 // Create just a directory entry for a new empty tape. This intentionally does
 // NOT use createImageFile(): that startup helper may zero-fill an entire disk
 // while borrowing scsiDev.data and cannot run safely with a live host.
@@ -398,11 +406,7 @@ ControlTapeCreateResult controlCreateEmptyTapeImage(
         return CONTROL_TAPE_CREATE_SD_ERROR;
     created_path[0] = '\0';
 
-    if (scsi_id >= S2S_MAX_TARGETS)
-        return CONTROL_TAPE_CREATE_NOT_TAPE;
-    image_config_t &img = scsiDiskGetImageConfig(scsi_id);
-    if ((S2S_CFG_TYPE)img.deviceType != S2S_CFG_SEQUENTIAL ||
-        !(img.scsiId & S2S_CFG_TARGET_ENABLED))
+    if (!controlIsTapeDevice(scsi_id))
         return CONTROL_TAPE_CREATE_NOT_TAPE;
 
     char basename[MAX_FILE_PATH + 1];
