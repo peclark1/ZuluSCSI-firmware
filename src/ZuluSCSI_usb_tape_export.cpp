@@ -16,6 +16,8 @@
 #include <string.h>
 
 static bool s_active = false;
+static bool s_handshaken = false;
+static uint32_t s_armed_at_ms = 0;
 static bool s_exit_after_drain = false;
 static uint32_t s_last_command_ms = 0;
 static uint32_t s_last_image_activity_ms = 0;
@@ -40,6 +42,7 @@ static uint16_t s_pending_length = 0;
 // A new SCSI selection can still arrive during the synchronous FAT read.
 static const uint32_t TAPE_EXPORT_QUIET_MS = 20;
 static const uint32_t TAPE_EXPORT_SESSION_TIMEOUT_MS = 180000;
+static const uint32_t TAPE_EXPORT_HANDSHAKE_TIMEOUT_MS = 15000;
 
 static void queueReply(const char *format, const char *value = nullptr)
 {
@@ -70,6 +73,7 @@ static void stopExport()
 {
     controlTapeExportClose();
     s_active = false;
+    s_handshaken = false;
     s_exit_after_drain = false;
     s_pending = PENDING_NONE;
     s_tx_len = s_tx_pos = 0;
@@ -88,6 +92,8 @@ void serialTapeExportEnter()
     if (s_active) return;
     controlTapeExportClose();
     s_active = true;
+    s_handshaken = false;
+    s_armed_at_ms = millis();
     s_exit_after_drain = false;
     s_pending = PENDING_NONE;
     s_command_len = 0;
@@ -97,10 +103,13 @@ void serialTapeExportEnter()
     for (uint8_t id = 0; id < S2S_MAX_TARGETS; ++id)
         s_prior[id] = liveImageIoSnapshot(id);
 
-    // The ordinary log ring still records log messages. Only its USB
-    // transmission is suspended so a binary packet cannot be corrupted.
-    log_lock();
-    queueReply("ZT1 READY\n");
+    // Do not grab the USB console/log output just because an 'f' was
+    // received (possibly by accident during boot). Only a deliberate
+    // client handshake activates the binary protocol. Arming expires after
+    // 15 seconds even if unwanted terminal input keeps arriving.
+    logmsg("ZT1 ARMED: export client must send HELLO ZT1 within 15s; "
+           "press q to cancel");
+
 }
 
 static void processCommand(const char *line)
@@ -157,6 +166,15 @@ void serialTapeExportInput(char c)
     if (!s_active) return;
     s_last_command_ms = millis();
 
+    // Emergency local escape from both the armed and active states.
+    // Uppercase QUIT remains the machine protocol command, so the Ubuntu
+    // client can still receive its ZT1 BYE acknowledgement.
+    if (c == 27 || c == 3 || (c == 'q' && s_command_len == 0))
+    {
+        stopExport();
+        return;
+    }
+
     // Stop-and-wait: a new command is not accepted until the prior response
     // has fully left the USB CDC transmit queue.
     if (s_pending != PENDING_NONE || s_tx_pos < s_tx_len ||
@@ -167,10 +185,30 @@ void serialTapeExportInput(char c)
     if (c == '\n')
     {
         s_command[s_command_len] = '\0';
-        if (s_command_overflow || s_command_len == 0)
-            queueReply("ZT1 ERR BAD_REQUEST\n");
-        else
-            processCommand(s_command);
+        if (!s_handshaken)
+        {
+            if (!s_command_overflow && strcmp(s_command, "HELLO ZT1") == 0)
+            {
+                // After this point only protocol frames may go over CDC.
+                log_lock();
+                s_handshaken = true;
+                queueReply("ZT1 READY\n");
+            }
+            else if (!s_command_overflow && strcmp(s_command, "QUIT") == 0)
+            {
+                stopExport();
+                return;
+            }
+            // Ignore stray newlines / unrelated terminal strings until
+            // a valid handshake arrives. Never produce BAD_REQUEST floods.
+        }
+        else if (s_command_len > 0)
+        {
+            if (s_command_overflow)
+                queueReply("ZT1 ERR BAD_REQUEST\n");
+            else
+                processCommand(s_command);
+        }
         s_command_len = 0;
         s_command_overflow = false;
         return;
@@ -195,6 +233,15 @@ void serialTapeExportPoll()
         (uint32_t)(now - s_last_command_ms) > TAPE_EXPORT_SESSION_TIMEOUT_MS)
     {
         stopExport();
+        return;
+    }
+    if (!s_handshaken)
+    {
+        if ((uint32_t)(now - s_armed_at_ms) >= TAPE_EXPORT_HANDSHAKE_TIMEOUT_MS)
+        {
+            stopExport();
+            logmsg("ZT1 handshake timed out; normal console restored");
+        }
         return;
     }
 
