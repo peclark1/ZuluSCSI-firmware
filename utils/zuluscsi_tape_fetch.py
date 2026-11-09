@@ -53,10 +53,16 @@ class TapeClient:
         self.port.reset_input_buffer()
         self._send(b"f")
         deadline = time.monotonic() + min(self.timeout, 30)
+        handshake_sent = False
         while time.monotonic() < deadline:
             raw = self.port.readline()
             if b"ZT1 READY" in raw:
+                # Old experimental firmware enters immediately; newer
+                # revisions require HELLO before taking over USB logging.
                 return
+            if b"ZT1 ARMED" in raw and not handshake_sent:
+                self._send(b"HELLO ZT1\n")
+                handshake_sent = True
         raise ExportError("No ZT1 READY; exit any active serial menu first, and verify firmware")
 
     def open(self, scsi_id, basename):
