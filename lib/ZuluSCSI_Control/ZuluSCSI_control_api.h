@@ -91,3 +91,24 @@ bool controlEjectMedia(uint8_t scsi_id);
 // Insert / close tray — makes the currently staged media accessible again.
 // Returns true on success; true is also returned if already inserted.
 bool controlInsertMedia(uint8_t scsi_id);
+
+// True only for a configured and enabled sequential-access/tape SCSI ID.
+bool controlIsTapeDevice(uint8_t scsi_id);
+
+// Create exactly one EMPTY SIMH .tap file in the configured image directory
+// of an existing tape SCSI target. Does NOT eject, load, insert, reconfigure,
+// overwrite or write any existing media. Caller must ensure the SCSI bus is
+// free and schedule this only during a sufficiently quiet interval. The
+// filesystem metadata update is still synchronous and not hard real-time.
+enum ControlTapeCreateResult
+{
+    CONTROL_TAPE_CREATE_OK,
+    CONTROL_TAPE_CREATE_INVALID_NAME,
+    CONTROL_TAPE_CREATE_NOT_TAPE,
+    CONTROL_TAPE_CREATE_NO_DIRECTORY,
+    CONTROL_TAPE_CREATE_EXISTS,
+    CONTROL_TAPE_CREATE_SD_ERROR
+};
+ControlTapeCreateResult controlCreateEmptyTapeImage(
+    uint8_t scsi_id, const char *requested_name,
+    char *created_path, size_t path_capacity);

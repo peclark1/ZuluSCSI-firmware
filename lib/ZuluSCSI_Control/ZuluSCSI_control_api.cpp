@@ -20,6 +20,7 @@
  **/
 
 #include "ZuluSCSI_control_api.h"
+#include "ZuluSCSI_tape_create.h"
 #include "ZuluSCSI_disk.h"
 #include "ZuluSCSI_cdrom.h"
 #include "ZuluSCSI_log.h"
@@ -383,4 +384,91 @@ bool controlInsertMedia(uint8_t scsi_id)
     else
         scsiDiskCloseTray(img);
     return true;
+}
+
+bool controlIsTapeDevice(uint8_t scsi_id)
+{
+    if (scsi_id >= S2S_MAX_TARGETS) return false;
+    const image_config_t &img = scsiDiskGetImageConfig(scsi_id);
+    return (S2S_CFG_TYPE)img.deviceType == S2S_CFG_SEQUENTIAL &&
+           (img.scsiId & S2S_CFG_TARGET_ENABLED);
+}
+
+// Create just a directory entry for a new empty tape. This intentionally does
+// NOT use createImageFile(): that startup helper may zero-fill an entire disk
+// while borrowing scsiDev.data and cannot run safely with a live host.
+// Keep the mounted tape image and its file handles entirely untouched.
+ControlTapeCreateResult controlCreateEmptyTapeImage(
+    uint8_t scsi_id, const char *requested_name,
+    char *created_path, size_t path_capacity)
+{
+    if (!created_path || path_capacity == 0)
+        return CONTROL_TAPE_CREATE_SD_ERROR;
+    created_path[0] = '\0';
+
+    if (!controlIsTapeDevice(scsi_id))
+        return CONTROL_TAPE_CREATE_NOT_TAPE;
+
+    char basename[MAX_FILE_PATH + 1];
+    if (!tapeCreateNormalizeName(requested_name, basename, sizeof(basename)))
+        return CONTROL_TAPE_CREATE_INVALID_NAME;
+
+    if (!SD.card())
+        return CONTROL_TAPE_CREATE_SD_ERROR;
+
+    char directory[MAX_FILE_PATH + 1];
+    if (!controlGetImageDirectory(scsi_id, directory, sizeof(directory)))
+        return CONTROL_TAPE_CREATE_NO_DIRECTORY;
+
+    FsFile dir = SD.open(directory, O_RDONLY);
+    const bool valid_dir = dir.isOpen() && dir.isDir();
+    dir.close();
+    if (!valid_dir)
+        return CONTROL_TAPE_CREATE_NO_DIRECTORY;
+
+    // Root-level image layouts are filtered by a three-character prefix.
+    // Add it for the user, so a newly created tape appears in the same
+    // image list as the device's existing media.
+    char actual_name[MAX_FILE_PATH + 1];
+    char prefix[4] = {};
+    if (controlGetImagePrefix(scsi_id, prefix, sizeof(prefix)))
+    {
+        const int length = snprintf(actual_name, sizeof(actual_name),
+                                    "%s-%s", prefix, basename);
+        if (length < 0 || (size_t)length >= sizeof(actual_name))
+            return CONTROL_TAPE_CREATE_INVALID_NAME;
+    }
+    else
+    {
+        memcpy(actual_name, basename, strlen(basename) + 1);
+    }
+
+    const size_t dirlen = strlen(directory);
+    const bool root = dirlen == 1 && directory[0] == '/';
+    const bool has_slash = dirlen > 0 && directory[dirlen - 1] == '/';
+    const int length = snprintf(created_path, path_capacity, "%s%s%s",
+                                directory, (root || has_slash) ? "" : "/",
+                                actual_name);
+    if (length < 0 || (size_t)length >= path_capacity ||
+        length >= MAX_FILE_PATH)
+    {
+        created_path[0] = '\0';
+        return CONTROL_TAPE_CREATE_INVALID_NAME;
+    }
+
+    if (SD.exists(created_path))
+        return CONTROL_TAPE_CREATE_EXISTS;
+
+    // O_EXCL is essential: never truncate or silently open a preexisting
+    // tape, even if a differently cased FAT name collides.
+    FsFile new_file = SD.open(created_path, O_WRONLY | O_CREAT | O_EXCL);
+    if (!new_file.isOpen())
+        return SD.exists(created_path) ? CONTROL_TAPE_CREATE_EXISTS :
+                                         CONTROL_TAPE_CREATE_SD_ERROR;
+
+    const bool empty = new_file.size() == 0;
+    const bool closed = new_file.close(); // Sync directory entry, release SD.
+    // A failed close/sync must not be advertised as a successful creation.
+    return (empty && closed) ? CONTROL_TAPE_CREATE_OK :
+                               CONTROL_TAPE_CREATE_SD_ERROR;
 }

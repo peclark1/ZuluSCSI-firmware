@@ -53,6 +53,13 @@ jobs:
               test/live_monitor_counters.cpp -o /tmp/zulu-live-test
           /tmp/zulu-live-test
 
+      - name: Test online tape creation safety helpers (native C++)
+        run: |
+          cd ZuluSCSI
+          g++ -std=c++11 -Wall -Wextra -Werror \
+              test/tape_create_helpers.cpp -o /tmp/zulu-create-tape-test
+          /tmp/zulu-create-tape-test
+
       - name: Build firmware
         run: |
           cd ZuluSCSI

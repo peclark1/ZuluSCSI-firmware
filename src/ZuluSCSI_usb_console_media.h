@@ -39,3 +39,8 @@ void serialMediaMenuProcess(char c);
 // the 'm' command with 'y'.  Displays the removable-device list and
 // transitions the state machine into DEVICE_LIST state.
 void serialMediaMenuEnter();
+
+// Poll a pending create-only tape operation during normal SCSI servicing.
+// Non-pending calls are cheap. The implementation proceeds only while the
+// bus is free and image I/O has been quiet; it does not load/eject media.
+void serialMediaMenuPoll();
