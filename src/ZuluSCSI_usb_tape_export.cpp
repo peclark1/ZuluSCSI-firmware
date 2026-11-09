@@ -181,8 +181,9 @@ void serialTapeExportInput(char c)
         s_exit_after_drain)
         return;
 
-    if (c == '\r') return;
-    if (c == '\n')
+    // Terminal emulators may send CR, LF or CRLF. Treat either as a
+    // delimiter; a trailing empty half of CRLF is ignored below.
+    if (c == '\r' || c == '\n')
     {
         s_command[s_command_len] = '\0';
         if (!s_handshaken)
