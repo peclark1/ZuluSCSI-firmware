@@ -15,13 +15,14 @@ It does not change SCSI device configuration or image contents.
 
 The first snapshot establishes the file-size baseline, so growth is zero.
 Subsequent snapshots show changes in the current image's logical size,
-including reductions if a tape image is truncated or rewritten.
+including reductions if a tape image is truncated or rewritten. Switching to a
+new image resets the size-change baseline for that SCSI target.
 
 ## Meaning of the numbers
 
 - `R`, `W`: completed **backing-image** read/write KiB/s during the
   preceding sampling period. These are not SCSI bus transfer rates, so
-  tape framing, filesystem metadata, prefetch and other image accesses can
+  tape framing, image-format headers, prefetch and other image accesses can
   contribute; cache hits may omit backing reads. There is one counter set
   per SCSI target ID, cumulative since firmware boot.
 - `calls R/W`: number of successful ImageBackingStore read/write calls in
