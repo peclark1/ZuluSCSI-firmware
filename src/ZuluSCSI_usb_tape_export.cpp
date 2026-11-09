@@ -7,6 +7,7 @@
 #include "ZuluSCSI_tape_export_protocol.h"
 #include "ZuluSCSI_live_monitor.h"
 #include "ZuluSCSI_platform.h"
+#include "ZuluSCSI_log.h"
 #include "ZuluSCSI_control_api.h"
 #include <scsi.h>
 #include <scsi2sd.h>
