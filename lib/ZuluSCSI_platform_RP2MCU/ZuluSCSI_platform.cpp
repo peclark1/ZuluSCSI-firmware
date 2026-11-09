@@ -2075,6 +2075,7 @@ static inline uint32_t get_cow_enabled_bit()
 {
     return g_cow_button_state ? REBOOT_ENABLE_COW_BIT : 0;
 }
+#ifndef PIO_FRAMEWORK_ARDUINO_NO_USB
 // Live image I/O view: deliberately no directory scanning, filesystem writes,
 // dynamic allocation or blocking serial loops. Each platform poll transmits at
 // most one USB CDC packet, and only while the SCSI bus is free. Backing-image
@@ -2253,6 +2254,7 @@ static void liveMonitorPoll()
     }
     liveMonitorQueueLine(line);
 }
+#endif // !PIO_FRAMEWORK_ARDUINO_NO_USB
 
 static usb_input_type_t serial_menu(menu_context_t context)
 {
