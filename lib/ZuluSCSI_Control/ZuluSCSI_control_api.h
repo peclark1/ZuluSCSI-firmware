@@ -92,6 +92,9 @@ bool controlEjectMedia(uint8_t scsi_id);
 // Returns true on success; true is also returned if already inserted.
 bool controlInsertMedia(uint8_t scsi_id);
 
+// True only for a configured and enabled sequential-access/tape SCSI ID.
+bool controlIsTapeDevice(uint8_t scsi_id);
+
 // Create exactly one EMPTY SIMH .tap file in the configured image directory
 // of an existing tape SCSI target. Does NOT eject, load, insert, reconfigure,
 // overwrite or write any existing media. Caller must ensure the SCSI bus is
