@@ -2086,6 +2086,7 @@ static uint32_t s_live_last_report_ms = 0;
 static LiveImageIoCounters s_live_previous[S2S_MAX_TARGETS] = {};
 static uint32_t s_live_previous_ms[S2S_MAX_TARGETS] = {};
 static uint64_t s_live_previous_size[S2S_MAX_TARGETS] = {};
+static uint32_t s_live_previous_name_hash[S2S_MAX_TARGETS] = {};
 static bool s_live_has_previous_size[S2S_MAX_TARGETS] = {};
 static int s_live_row = S2S_MAX_TARGETS + 1; // -1 header; 0..N-1 devices; N footer
 static bool s_live_detail = false;
@@ -2224,10 +2225,6 @@ static void liveMonitorPoll()
     {
         // size() and getFilename() query the already-open image; no rescan.
         const uint64_t size = img.file.size();
-        const uint64_t before = s_live_previous_size[id];
-        const bool grew = size >= before;
-        const uint64_t difference = s_live_has_previous_size[id] ?
-            (grew ? size - before : before - size) : 0;
         char filename[MAX_FILE_PATH + 1] = {};
         if (!img.file.getFilename(filename, sizeof(filename)))
         {
@@ -2237,6 +2234,17 @@ static void liveMonitorPoll()
                 snprintf(filename, sizeof(filename), "%s",
                          img.file.isRaw() ? "(raw/partition image)" : "(unnamed)");
         }
+        // Changing cartridges/images is not growth of the previous image.
+        const char *identity = img.current_image[0] ? img.current_image : filename;
+        uint32_t name_hash = 2166136261u;
+        for (const char *p = identity; *p; ++p)
+            name_hash = (name_hash ^ (uint8_t)*p) * 16777619u;
+        const uint64_t before = s_live_previous_size[id];
+        const bool grew = size >= before;
+        const bool same_image = s_live_has_previous_size[id] &&
+            s_live_previous_name_hash[id] == name_hash;
+        const uint64_t difference = same_image ?
+            (grew ? size - before : before - size) : 0;
         const char *basename = strrchr(filename, '/');
         basename = basename ? basename + 1 : filename;
         snprintf(line, sizeof(line),
@@ -2248,6 +2256,7 @@ static void liveMonitorPoll()
                  (unsigned long long)(difference / 1048576ULL),
                  (unsigned long long)((difference % 1048576ULL) * 10 / 1048576ULL));
         s_live_previous_size[id] = size;
+        s_live_previous_name_hash[id] = name_hash;
         s_live_has_previous_size[id] = true;
         s_live_detail = false;
         s_live_row++;
