@@ -2365,6 +2365,8 @@ static usb_input_type_t serial_menu(menu_context_t context)
                     // reboot, SD erase and media-changing console commands.
                     input_type = USB_INPUT_NONE;
                     liveMonitorStart();
+                    logmsg("Live image I/O monitor enabled (5-second refresh). "
+                           "Press q to exit, 0 for 10 seconds, r to refresh.");
                     return USB_INPUT_NONE;
                 }
                 match_keyed = false;
