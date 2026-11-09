@@ -467,6 +467,8 @@ ControlTapeCreateResult controlCreateEmptyTapeImage(
                                          CONTROL_TAPE_CREATE_SD_ERROR;
 
     const bool empty = new_file.size() == 0;
-    new_file.close(); // Sync the new FAT directory entry, then release SD.
-    return empty ? CONTROL_TAPE_CREATE_OK : CONTROL_TAPE_CREATE_SD_ERROR;
+    const bool closed = new_file.close(); // Sync directory entry, release SD.
+    // A failed close/sync must not be advertised as a successful creation.
+    return (empty && closed) ? CONTROL_TAPE_CREATE_OK :
+                               CONTROL_TAPE_CREATE_SD_ERROR;
 }
