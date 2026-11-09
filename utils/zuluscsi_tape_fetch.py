@@ -185,6 +185,7 @@ def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
             json.dump(identity, f, sort_keys=True)
 
     start = time.monotonic()
+    start_position = position
     with partial.open("r+b") as out:
         out.seek(position)
         while position < size:
@@ -194,7 +195,7 @@ def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
             position += len(block)
             if progress and (position == size or position % (1024 * 1024) < chunk_size):
                 duration = max(time.monotonic() - start, 0.001)
-                rate = (position - (partial.stat().st_size if False else 0)) / duration
+                rate = (position - start_position) / duration
                 print(f"\r{position:,} / {size:,} bytes ({position * 100 / max(size,1):.1f}%) "
                       f"transferred, {rate / 1024:.1f} KiB/s", end="", flush=True)
         out.flush()
@@ -213,7 +214,10 @@ def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
             sha.update(block)
     if partial.stat().st_size != size:
         raise ExportError("Downloaded size changed during verification")
-    os.rename(partial, dest)  # dest existence was checked above
+    # Hardlink creation is atomic and EXCLUSIVE. os.rename() would
+    # silently overwrite a destination created after our earlier check.
+    os.link(partial, dest)
+    partial.unlink()
     metadata.unlink()
     return dest, sha.hexdigest(), size
 
