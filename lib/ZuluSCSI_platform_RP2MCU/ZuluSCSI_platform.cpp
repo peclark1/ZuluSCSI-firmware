@@ -43,6 +43,11 @@
 #include "custom_timings.h"
 #include <ZuluSCSI_settings.h>
 #include "ZuluSCSI_usb_console_media.h"
+#include "ZuluSCSI_disk.h"
+#include "ZuluSCSI_live_monitor.h"
+#include <ZuluSCSI_control_api.h>
+#include <stdio.h>
+#include <string.h>
 #include "ZuluSCSI_usb_console_erase.h"
 #include "ZuluSCSI_sd_trimcheck.h"
 #ifdef ZULUCONTROL_FIRMWARE 
@@ -134,6 +139,7 @@ typedef enum
     USB_INPUT_BUTTON_3,
     USB_INPUT_BUTTON_4,
     USB_INPUT_MEDIA_SUBMENU,
+    USB_INPUT_LIVE_MONITOR,
     USB_INPUT_ERASE_SD_CARD,
     USB_INPUT_SD_TRIMCHECK
 }
@@ -2069,6 +2075,182 @@ static inline uint32_t get_cow_enabled_bit()
 {
     return g_cow_button_state ? REBOOT_ENABLE_COW_BIT : 0;
 }
+// Live image I/O view: deliberately no directory scanning, filesystem writes,
+// dynamic allocation or blocking serial loops. Each platform poll transmits at
+// most one USB CDC packet, and only while the SCSI bus is free. Backing-image
+// counters include tape framing/prefetch; they are not host SCSI bus totals.
+static bool s_live_active = false;
+static uint32_t s_live_interval_ms = 5000;
+static uint32_t s_live_last_report_ms = 0;
+static LiveImageIoCounters s_live_previous[S2S_MAX_TARGETS] = {};
+static uint32_t s_live_previous_ms[S2S_MAX_TARGETS] = {};
+static uint64_t s_live_previous_size[S2S_MAX_TARGETS] = {};
+static int s_live_row = S2S_MAX_TARGETS + 1; // -1 header; 0..N-1 devices; N footer
+static bool s_live_detail = false;
+static char s_live_line[192] = {};
+static size_t s_live_pending = 0;
+static size_t s_live_offset = 0;
+
+static void liveMonitorQueueLine(const char *line)
+{
+    size_t len = strlen(line);
+    if (len >= sizeof(s_live_line)) len = sizeof(s_live_line) - 1;
+    memcpy(s_live_line, line, len);
+    s_live_line[len] = '\0';
+    s_live_pending = len;
+    s_live_offset = 0;
+}
+
+static void liveMonitorStart()
+{
+    s_live_active = true;
+    s_live_interval_ms = 5000;
+    s_live_row = S2S_MAX_TARGETS + 1;
+    s_live_detail = false;
+    s_live_pending = 0;
+    const uint32_t now = millis();
+    s_live_last_report_ms = now - s_live_interval_ms; // first report immediately
+    for (uint8_t id = 0; id < S2S_MAX_TARGETS; ++id)
+    {
+        s_live_previous[id] = liveImageIoSnapshot(id);
+        s_live_previous_ms[id] = now;
+        image_config_t &img = scsiDiskGetImageConfig(id);
+        s_live_previous_size[id] = img.file.isOpen() ? img.file.size() : 0;
+    }
+}
+
+static void liveMonitorInput(char key)
+{
+    if (key == 'q' || key == 'Q')
+    {
+        s_live_active = false;
+        s_live_pending = 0;
+        return;
+    }
+    if (key == '5' || key == '0')
+    {
+        s_live_interval_ms = (key == '5') ? 5000 : 10000;
+        s_live_row = S2S_MAX_TARGETS + 1;
+        s_live_pending = 0;
+        s_live_last_report_ms = millis() - s_live_interval_ms;
+    }
+    else if (key == 'r' || key == 'R')
+    {
+        s_live_row = S2S_MAX_TARGETS + 1;
+        s_live_pending = 0;
+        s_live_last_report_ms = millis() - s_live_interval_ms;
+    }
+}
+
+static void liveMonitorPoll()
+{
+    if (!s_live_active || !usb_serial_connected() ||
+        platform_msc_lock_get() || scsiDev.phase != BUS_FREE)
+        return;
+
+    // Do not spin waiting for USB CDC space; keep the SCSI service loop fast.
+    if (s_live_offset < s_live_pending)
+    {
+        if (Serial.availableForWrite())
+            s_live_offset += platform_write_to_serial(
+                (uint8_t*)s_live_line + s_live_offset,
+                (uint32_t)(s_live_pending - s_live_offset));
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (s_live_row > S2S_MAX_TARGETS)
+    {
+        if ((uint32_t)(now - s_live_last_report_ms) < s_live_interval_ms)
+            return;
+        s_live_last_report_ms = now;
+        s_live_row = -1;
+        s_live_detail = false;
+    }
+
+    char line[sizeof(s_live_line)];
+    if (s_live_row == -1)
+    {
+        snprintf(line, sizeof(line),
+                 "\r\nZuluSCSI image I/O - %lus samples (5/0 interval, r refresh, q quit)\r\n"
+                 "Rates: KiB/s, successful backing image reads/writes (not SCSI wire)\r\n",
+                 (unsigned long)(s_live_interval_ms / 1000));
+        s_live_row = 0;
+        liveMonitorQueueLine(line);
+        return;
+    }
+
+    if (s_live_row == S2S_MAX_TARGETS)
+    {
+        s_live_row++;
+        liveMonitorQueueLine("---- End snapshot ----\r\n");
+        return;
+    }
+
+    const uint8_t id = (uint8_t)s_live_row;
+    image_config_t &img = scsiDiskGetImageConfig(id);
+    if (!img.file.isOpen())
+    {
+        s_live_row++;
+        s_live_detail = false;
+        return;
+    }
+
+    if (!s_live_detail)
+    {
+        const LiveImageIoCounters current = liveImageIoSnapshot(id);
+        uint32_t elapsed = (uint32_t)(now - s_live_previous_ms[id]);
+        if (!elapsed) elapsed = 1;
+        const uint64_t readDelta = current.readBytes - s_live_previous[id].readBytes;
+        const uint64_t writeDelta = current.writeBytes - s_live_previous[id].writeBytes;
+        const uint64_t readOps = current.readCalls - s_live_previous[id].readCalls;
+        const uint64_t writeOps = current.writeCalls - s_live_previous[id].writeCalls;
+        const uint64_t readRate = (readDelta / elapsed) * 1000 / 1024;
+        const uint64_t writeRate = (writeDelta / elapsed) * 1000 / 1024;
+        const char *kind = img.deviceType == S2S_CFG_FIXED ?
+                           "Disk" : controlGetDeviceTypeName(id);
+        snprintf(line, sizeof(line),
+                 " ID%u %-9s R:%llu W:%llu KiB/s  calls R:%llu W:%llu\r\n",
+                 (unsigned)id, kind,
+                 (unsigned long long)readRate, (unsigned long long)writeRate,
+                 (unsigned long long)readOps, (unsigned long long)writeOps);
+        s_live_previous[id] = current;
+        s_live_previous_ms[id] = now;
+        s_live_detail = true;
+    }
+    else
+    {
+        // size() and getFilename() query the already-open image; no rescan.
+        const uint64_t size = img.file.size();
+        const uint64_t before = s_live_previous_size[id];
+        const bool grew = size >= before;
+        const uint64_t difference = grew ? size - before : before - size;
+        char filename[MAX_FILE_PATH + 1] = {};
+        if (!img.file.getFilename(filename, sizeof(filename)))
+        {
+            if (img.current_image[0])
+                snprintf(filename, sizeof(filename), "%s", img.current_image);
+            else
+                snprintf(filename, sizeof(filename), "%s",
+                         img.file.isRaw() ? "(raw/partition image)" : "(unnamed)");
+        }
+        const char *basename = strrchr(filename, '/');
+        basename = basename ? basename + 1 : filename;
+        snprintf(line, sizeof(line),
+                 "     %.64s  size:%llu.%01lluMiB  %c%llu.%01lluMiB\r\n",
+                 basename,
+                 (unsigned long long)(size / 1048576ULL),
+                 (unsigned long long)((size % 1048576ULL) * 10 / 1048576ULL),
+                 grew ? '+' : '-',
+                 (unsigned long long)(difference / 1048576ULL),
+                 (unsigned long long)((difference % 1048576ULL) * 10 / 1048576ULL));
+        s_live_previous_size[id] = size;
+        s_live_detail = false;
+        s_live_row++;
+    }
+    liveMonitorQueueLine(line);
+}
+
 static usb_input_type_t serial_menu(menu_context_t context)
 {
 #ifndef PIO_FRAMEWORK_ARDUINO_NO_USB
@@ -2076,6 +2258,8 @@ static usb_input_type_t serial_menu(menu_context_t context)
     if (!usb_serial_connected()) return USB_INPUT_NONE;
 
     if (platform_msc_lock_get()) return USB_INPUT_NONE; // Avoid re-entrant USB events
+
+    liveMonitorPoll();
 
     // Capture reboot key sequence
     static usb_input_type_t input_type = USB_INPUT_NONE;
@@ -2090,6 +2274,12 @@ static usb_input_type_t serial_menu(menu_context_t context)
     if(available > 0)
     {
         int32_t read = Serial.read();
+
+        if (s_live_active)
+        {
+            liveMonitorInput((char)read);
+            return USB_INPUT_NONE;
+        }
 
         // Route to the media submenu while it is active
         if (serialMediaMenuActive())
@@ -2163,6 +2353,13 @@ static usb_input_type_t serial_menu(menu_context_t context)
                 else
                     match_keyed = false;
                 break;
+            case 'V':
+            case 'v':
+                if (context == MENU_CONTEXT_TARGET_MAIN)
+                    input_type = USB_INPUT_LIVE_MONITOR;
+                else
+                    match_keyed = false;
+                break;
             case 'M':
             case 'm':
                 if (context ==  MENU_CONTEXT_TARGET_MAIN)
@@ -2225,6 +2422,7 @@ static usb_input_type_t serial_menu(menu_context_t context)
                 (context == MENU_CONTEXT_TARGET_MAIN && g_enabled_cow_buttons & 8)     ? "    '4' - push function button 4 (cow init, currently ": "", (g_enabled_cow_buttons & 8) ? ((g_cow_button_state & 8) ? "enabled)\r\n" : "disabled)\r\n") : "",
 
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    'm' - media management (image select, eject, insert)\r\n" : "",
+                (context == MENU_CONTEXT_TARGET_MAIN) ? "    'v' - live image I/O monitor (read-only, 5s refresh)\r\n" : "",
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    'c' - check how the SD card handles erase (TRIM), uses a temporary file\r\n" : "",
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    't' - erase (TRIM) entire SD card -- DESTROYS ALL DATA\r\n" : ""
                 "  press 'y' after a command to confirm and execute"
@@ -2314,6 +2512,9 @@ static usb_input_type_t serial_menu(menu_context_t context)
                     break;
                 case USB_INPUT_MEDIA_SUBMENU:
                     serialMediaMenuEnter();
+                    break;
+                case USB_INPUT_LIVE_MONITOR:
+                    liveMonitorStart();
                     break;
                 case USB_INPUT_ERASE_SD_CARD:
                     serialEraseMenuEnter();
