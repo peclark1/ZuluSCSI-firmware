@@ -135,6 +135,21 @@ class TapeExportTests(unittest.TestCase):
             with self.assertRaises(ExportError):
                 copy_image(client2, "archive.tap", 0, dest, progress=False)
 
+    def test_opt_in_4096_chunk_round_trip(self):
+        # Exercise packet assembly even when USB fragments into 31-byte
+        # reads, verifying that larger reads preserve exact byte ordering.
+        data = bytes(range(256)) * 40 + b"end"
+        with tempfile.TemporaryDirectory() as td:
+            client, port = self.connect(data)
+            dest, digest, size = copy_image(
+                client, "large.tap", 0, Path(td) / "large.tap",
+                chunk_size=4096, progress=False)
+            self.assertEqual(size, len(data))
+            self.assertEqual(dest.read_bytes(), data)
+            self.assertEqual(port.read_count, 3)
+            self.assertEqual(len(digest), 64)
+            client.quit()
+
     def test_mismatch_resume_refused(self):
         data = b"123456789" * 10
         with tempfile.TemporaryDirectory() as td:

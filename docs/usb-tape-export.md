@@ -109,6 +109,41 @@ For preservation, retain the source until independent verification.
   tape. That state remains under the existing OS/400 and Media Management
   controls.
 
+## Optional throughput tuning (not yet hardware-qualified)
+
+A real Blaster export was reported at about 20% after ten minutes. For a
+roughly 300 MiB image, that implies around 100 KiB/s and close to 50
+minutes total. The original firmware limited each stop-and-wait READ to
+1,024 bytes, including a separate host command and USB reply for every
+1 KiB of payload. This is a plausible contributor to the slowness, not
+yet a measured root cause. SCSI-bus contention and USB CDC polling can
+also limit transfer rate.
+
+**No change in default behavior.** This optional experimental branch
+allows a maximum of 4,096 bytes per READ, but the downloader retains
+its original 1,024-byte default. Only after the original preservation
+transfer has completed and after flashing a firmware build containing
+this change, test on a small disposable image:
+
+```sh
+python3 utils/zuluscsi_tape_fetch.py \
+  --port /dev/ttyACM0 --scsi-id 0 --image disposable.tap \
+  --output ~/tape-archives/ --chunk-size 4096
+```
+
+For a controlled test, export copies of the same small tape with different
+destination names to separate directories, using `--chunk-size 1024`,
+`2048`, and `4096` in turn. Compare effective KiB/s, average and
+slowest READ round-trip times, and whether OS/400 remains responsive.
+Larger chunks reduce command overhead but make each synchronous SD
+read longer; **do not assume they are safe under significant AS/400 I/O**
+until tested. The host will reject chunks larger than the firmware's
+limit; a larger downloader setting alone cannot speed up older firmware.
+
+If increasing chunks has little effect, the primary limit is likely USB
+CDC scheduling, SCSI inactivity gating, or SD I/O time rather than
+per-command round trips; a different scheduling design would be needed.
+
 ## Qualification checklist
 
 1. Native C++ packet tests, Python fake-serial downloader tests, and full

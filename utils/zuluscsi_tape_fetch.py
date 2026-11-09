@@ -19,7 +19,8 @@ import zlib
 
 MAGIC = b"ZT1D"
 HEADER = struct.Struct("<4sQHI")
-MAX_CHUNK = 1024
+MAX_CHUNK = 4096
+DEFAULT_CHUNK = 1024  # Conservative default; larger chunks are experimental.
 
 
 class ExportError(Exception):
@@ -161,7 +162,7 @@ def verify_resume(client, part, progress_size, total):
                 raise ExportError("Resume fingerprint mismatch: source changed")
 
 
-def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
+def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=DEFAULT_CHUNK,
                progress=True):
     size = client.open(scsi_id, image)
     dest = Path(dest).expanduser()
@@ -192,11 +193,19 @@ def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
 
     start = time.monotonic()
     start_position = position
+    request_count = 0
+    total_read_secs = 0.0
+    slowest_read_secs = 0.0
     with partial.open("r+b") as out:
         out.seek(position)
         while position < size:
             length = min(chunk_size, size - position)
+            request_start = time.monotonic()
             block = read_with_retries(client, position, length)
+            read_secs = time.monotonic() - request_start
+            request_count += 1
+            total_read_secs += read_secs
+            slowest_read_secs = max(slowest_read_secs, read_secs)
             out.write(block)
             position += len(block)
             if progress and (position == size or position % (1024 * 1024) < chunk_size):
@@ -208,7 +217,10 @@ def copy_image(client, image, scsi_id, dest, resume=False, chunk_size=1024,
         os.fsync(out.fileno())
     if progress:
         print()
-
+        if request_count:
+            print(f"ZT1: {request_count:,} READ requests at up to {chunk_size:,} bytes; "
+                  f"avg round trip {1000 * total_read_secs / request_count:.1f} ms; "
+                  f"slowest {1000 * slowest_read_secs:.1f} ms.")
     client.close_image()
     # Hash the actual complete file on disk, not only the USB data stream.
     sha = hashlib.sha256()
@@ -235,13 +247,13 @@ def main(argv=None):
     parser.add_argument("--scsi-id", type=int, default=0, help="Tape SCSI ID (default: 0)")
     parser.add_argument("--output", required=True, help="Output filename or existing directory")
     parser.add_argument("--resume", action="store_true", help="Resume matching .part + .part.json")
-    parser.add_argument("--chunk-size", type=int, default=MAX_CHUNK,
-                        help="Max payload bytes per request (1..1024)")
+    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK,
+                        help="READ payload size; default 1024 (4096 requires tuned firmware)")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Per-response deadline in seconds")
     args = parser.parse_args(argv)
     if not 1 <= args.chunk_size <= MAX_CHUNK:
-        parser.error("chunk-size must be 1..1024")
+        parser.error("chunk-size must be 1..4096")
     if not safe_name(args.image):
         parser.error("image must be a safe .tap basename without paths")
     try:

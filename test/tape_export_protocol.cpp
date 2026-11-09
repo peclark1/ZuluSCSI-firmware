@@ -20,7 +20,10 @@ int main()
     const uint8_t known_crc[] = {0x26,0x39,0xf4,0xcb};
     assert(memcmp(packet + 14, known_crc, 4) == 0);
 
-    assert(!ztapeEncodeHeader(packet, sizeof(packet), 0, 1025, 0));
+    // 1024-byte legacy and 4096-byte opt-in frames are both supported.
+    assert(ztapeEncodeHeader(packet, sizeof(packet), 0, 4096, 0x11223344u));
+    assert(packet[12] == 0x00 && packet[13] == 0x10);
+    assert(!ztapeEncodeHeader(packet, sizeof(packet), 0, 4097, 0));
     assert(!ztapeEncodeHeader(packet, ZTAPE_EXPORT_HEADER_SIZE + 1, 0, 512, 0));
     assert(!ztapeEncodeHeader(nullptr, sizeof(packet), 0, 10, 0));
     assert(ztapeEncodeHeader(packet, sizeof(packet), 0, 0, 0));
