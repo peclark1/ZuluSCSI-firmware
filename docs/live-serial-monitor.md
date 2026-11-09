@@ -10,19 +10,27 @@ It does not change SCSI device configuration or image contents.
    needs no confirmation. (Earlier test builds required `vy`.)
 3. The first snapshot appears immediately. Further snapshots arrive every
    five seconds. Type `0` for a ten-second interval or `5` to restore five.
-   Type `r` to refresh immediately and `q` to exit.
+   Changing cadence schedules the *next* sample after the new interval;
+   it does not force a misleading short sample. Type `r` to refresh
+   immediately (this can produce a shorter actual measurement window),
+   or `q` to exit.
 4. The existing `m` menu remains available separately to enumerate removable
    media images and their sizes. The monitor only displays **open images**.
 
-The first snapshot establishes the file-size baseline, so growth is zero.
+The first snapshot establishes the file-size baseline (shown as `baseline`).
 Subsequent snapshots show changes in the current image's logical size,
 including reductions if a tape image is truncated or rewritten. Switching to a
 new image resets the size-change baseline for that SCSI target.
+Small files and deltas are shown in bytes or KiB rather than rounded to
+`0.0MiB`; larger values use two decimal places of MiB.
 
 ## Meaning of the numbers
 
 - `R`, `W`: completed **backing-image** read/write KiB/s during the
-  preceding sampling period. These are not SCSI bus transfer rates, so
+  actual period displayed as `dt` on each target row. This matters when
+  the user requests an immediate refresh or the SCSI bus is busy. The
+  headline indicates the configured refresh cadence, not a guaranteed
+  measurement window. These are not SCSI bus transfer rates, so
   tape framing, image-format headers, prefetch and other image accesses can
   contribute; cache hits may omit backing reads. There is one counter set
   per SCSI target ID, cumulative since firmware boot.
@@ -32,7 +40,8 @@ new image resets the size-change baseline for that SCSI target.
   tape images this can grow as written; preallocated disk images ordinarily
   do not grow. RAW and gapped/partition-backed targets may report logical
   capacity rather than a filesystem file length.
-- `+/-`: size change since the previous snapshot of that device.
+- `delta:+/-`: size change since the previous snapshot of that device.
+  The first observation of each loaded image is labeled `baseline`.
 - Name: currently open image's basename, or a raw/partition fallback.
 
 ## Safety and performance
@@ -45,9 +54,12 @@ new image resets the size-change baseline for that SCSI target.
   delay the screen update until the command finishes.
 - Refresh is not a filesystem synchronization or durability guarantee;
   the image-size display does not flush, truncate or close any file.
-- This monitor has not yet been hardware-validated on the IBM 9404 B10.
-  Verify no throughput regression under long disk reads and sustained tape
-  writes before enabling it for preservation work.
+- The original feature was exercised successfully on the IBM 9404-B10
+  running OS/400 V2R1: B-mode IPL completed to sign-on, and a distribution
+  tape was created with simultaneous image reads/writes and visible .tap
+  growth. This refined display/precision revision still needs a separate
+  hardware re-test. These observations do not establish a performance
+  equivalence benchmark or universal compatibility.
 - Other console/log output may interleave with the screen while debugging.
 
 Native counter test:
