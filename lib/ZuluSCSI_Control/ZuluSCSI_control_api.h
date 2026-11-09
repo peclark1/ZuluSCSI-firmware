@@ -112,3 +112,23 @@ enum ControlTapeCreateResult
 ControlTapeCreateResult controlCreateEmptyTapeImage(
     uint8_t scsi_id, const char *requested_name,
     char *created_path, size_t path_capacity);
+
+// Online read-only export. Only closed/unmounted SIMH tape images inside a
+// configured tape target's image directory are eligible. All calls take place
+// on the main ZuluSCSI service loop, never in an interrupt or SCSI hot path.
+enum ControlTapeExportResult
+{
+    CONTROL_TAPE_EXPORT_OK,
+    CONTROL_TAPE_EXPORT_BAD_REQUEST,
+    CONTROL_TAPE_EXPORT_NOT_TAPE,
+    CONTROL_TAPE_EXPORT_NOT_FOUND,
+    CONTROL_TAPE_EXPORT_IN_USE,
+    CONTROL_TAPE_EXPORT_IO_ERROR,
+    CONTROL_TAPE_EXPORT_CHANGED
+};
+ControlTapeExportResult controlTapeExportOpen(
+    uint8_t scsi_id, const char *basename, uint64_t *size_out);
+ControlTapeExportResult controlTapeExportRead(
+    uint64_t offset, void *buffer, size_t length);
+ControlTapeExportResult controlTapeExportValidate();
+void controlTapeExportClose();
