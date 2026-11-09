@@ -2268,6 +2268,10 @@ static usb_input_type_t serial_menu(menu_context_t context)
 {
 #ifndef PIO_FRAMEWORK_ARDUINO_NO_USB
 
+    // Avoid re-entrant USB CDC work while USB mass-storage owns the lock.
+    // A pending export is serviced again as soon as the lock is released.
+    if (platform_msc_lock_get()) return USB_INPUT_NONE;
+
     // Clean up file handles and unlock USB logs on cable disconnection, too.
     serialTapeExportPoll();
     if (!serialTapeExportActive() && s_live_resume_after_export)
@@ -2277,7 +2281,6 @@ static usb_input_type_t serial_menu(menu_context_t context)
     }
 
     if (!usb_serial_connected()) return USB_INPUT_NONE;
-    if (platform_msc_lock_get()) return USB_INPUT_NONE; // Avoid re-entrant USB events
 
     if (!serialTapeExportActive())
         liveMonitorPoll();
