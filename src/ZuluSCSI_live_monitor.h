@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <scsi2sd.h>
 
 struct LiveImageIoCounters
@@ -48,6 +49,50 @@ inline LiveImageIoCounters liveImageIoSnapshot(uint8_t scsiId)
 {
     LiveImageIoCounters empty = {};
     return scsiId < S2S_MAX_TARGETS ? liveImageIoCounters()[scsiId] : empty;
+}
+
+// Use the actual sampling time, not the configured display interval. A
+// manual refresh, SCSI-busy delay or interval change can shorten/lengthen
+// the measurement window. All arithmetic is integer-only for MCU targets.
+inline uint64_t liveImageIoRateKiBPerSec(uint64_t completedBytes, uint32_t elapsedMs)
+{
+    if (elapsedMs == 0)
+        return 0;
+    return (completedBytes * 1000ULL) / (uint64_t(elapsedMs) * 1024ULL);
+}
+
+// Human-readable quantities with enough resolution for small SIMH tape
+// images and sub-MiB file growth. No allocation, no floats, no SD access.
+// The format is deliberately reusable by native host-side tests.
+inline void liveImageIoFormatBytes(char *out, size_t capacity, uint64_t bytes)
+{
+    if (!out || capacity == 0)
+        return;
+    if (bytes >= 1048576ULL)
+        snprintf(out, capacity, "%llu.%02lluMiB",
+                 (unsigned long long)(bytes / 1048576ULL),
+                 (unsigned long long)((bytes % 1048576ULL) * 100ULL / 1048576ULL));
+    else if (bytes >= 1024ULL)
+        snprintf(out, capacity, "%llu.%01lluKiB",
+                 (unsigned long long)(bytes / 1024ULL),
+                 (unsigned long long)((bytes % 1024ULL) * 10ULL / 1024ULL));
+    else
+        snprintf(out, capacity, "%lluB", (unsigned long long)bytes);
+}
+
+inline void liveImageIoFormatChange(char *out, size_t capacity,
+                                    uint64_t delta, bool shrank, bool haveBaseline)
+{
+    if (!out || capacity == 0)
+        return;
+    if (!haveBaseline)
+    {
+        snprintf(out, capacity, "baseline");
+        return;
+    }
+    char quantity[48];
+    liveImageIoFormatBytes(quantity, sizeof(quantity), delta);
+    snprintf(out, capacity, "%c%s", shrank ? '-' : '+', quantity);
 }
 
 // Read current open-image metadata without enumerating directories or touching
