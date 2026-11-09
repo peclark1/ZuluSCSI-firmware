@@ -43,6 +43,7 @@
 #include "custom_timings.h"
 #include <ZuluSCSI_settings.h>
 #include "ZuluSCSI_usb_console_media.h"
+#include "ZuluSCSI_usb_tape_export.h"
 #include "ZuluSCSI_live_monitor.h"
 #include <ZuluSCSI_control_api.h>
 #include <stdio.h>
@@ -2080,6 +2081,7 @@ static inline uint32_t get_cow_enabled_bit()
 // counters include tape framing/prefetch; they are not host SCSI bus totals.
 static bool s_live_active = false;
 static bool s_live_resume_after_media = false;
+static bool s_live_resume_after_export = false;
 static uint32_t s_live_interval_ms = 5000;
 static uint32_t s_live_last_report_ms = 0;
 static LiveImageIoCounters s_live_previous[S2S_MAX_TARGETS] = {};
@@ -2179,7 +2181,7 @@ static void liveMonitorPoll()
     if (s_live_row == -1)
     {
         snprintf(line, sizeof(line),
-                 "\r\nZuluSCSI image I/O - refresh %lus (per-ID window; 5/0/r/q, n:media)\r\n"
+                 "\r\nZuluSCSI image I/O - refresh %lus (5/0/r/q, n:media, f:fetch)\r\n"
                  "Rates: KiB/s, successful backing image reads/writes (not SCSI wire)\r\n",
                  (unsigned long)(s_live_interval_ms / 1000));
         s_live_row = 0;
@@ -2266,12 +2268,20 @@ static usb_input_type_t serial_menu(menu_context_t context)
 {
 #ifndef PIO_FRAMEWORK_ARDUINO_NO_USB
 
-    if (!usb_serial_connected()) return USB_INPUT_NONE;
+    // Clean up file handles and unlock USB logs on cable disconnection, too.
+    serialTapeExportPoll();
+    if (!serialTapeExportActive() && s_live_resume_after_export)
+    {
+        s_live_resume_after_export = false;
+        liveMonitorStart();
+    }
 
+    if (!usb_serial_connected()) return USB_INPUT_NONE;
     if (platform_msc_lock_get()) return USB_INPUT_NONE; // Avoid re-entrant USB events
 
-    liveMonitorPoll();
-    if (scsiDev.phase == BUS_FREE && serialMediaMenuActive())
+    if (!serialTapeExportActive())
+        liveMonitorPoll();
+    if (!serialTapeExportActive() && scsiDev.phase == BUS_FREE && serialMediaMenuActive())
         serialMediaMenuPoll();
 
     // Capture reboot key sequence
@@ -2288,9 +2298,22 @@ static usb_input_type_t serial_menu(menu_context_t context)
     {
         int32_t read = Serial.read();
 
+        if (serialTapeExportActive())
+        {
+            serialTapeExportInput((char)read);
+            return USB_INPUT_NONE;
+        }
+
         if (s_live_active)
         {
-            if ((char)read == 'n' || (char)read == 'N')
+            if ((char)read == 'f' || (char)read == 'F')
+            {
+                s_live_active = false;
+                s_live_pending = 0;
+                s_live_resume_after_export = true;
+                serialTapeExportEnter();
+            }
+            else if ((char)read == 'n' || (char)read == 'N')
             {
                 // Suspend scrolling monitor output while a user navigates
                 // media management. It will resume after they exit the menu.
@@ -2383,6 +2406,16 @@ static usb_input_type_t serial_menu(menu_context_t context)
                 else
                     match_keyed = false;
                 break;
+            case 'F':
+            case 'f':
+                if (context == MENU_CONTEXT_TARGET_MAIN)
+                {
+                    input_type = USB_INPUT_NONE;
+                    serialTapeExportEnter();
+                    return USB_INPUT_NONE;
+                }
+                match_keyed = false;
+                break;
             case 'V':
             case 'v':
                 if (context == MENU_CONTEXT_TARGET_MAIN)
@@ -2460,6 +2493,7 @@ static usb_input_type_t serial_menu(menu_context_t context)
 
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    'm' - media management (image select, eject, insert)\r\n" : "",
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    'v' - live image I/O monitor (immediate, read-only; q to quit)\r\n" : "",
+                (context == MENU_CONTEXT_TARGET_MAIN) ? "    'f' - read-only tape fetch over USB serial (host utility)\r\n" : "",
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    'c' - check how the SD card handles erase (TRIM), uses a temporary file\r\n" : "",
                 (context == MENU_CONTEXT_TARGET_MAIN) ? "    't' - erase (TRIM) entire SD card -- DESTROYS ALL DATA\r\n" : ""
                 "  press 'y' after a command to confirm and execute"
