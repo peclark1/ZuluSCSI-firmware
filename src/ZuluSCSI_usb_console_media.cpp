@@ -22,6 +22,8 @@
 #include "ZuluSCSI_usb_console_media.h"
 #include "ZuluSCSI_platform.h"
 #include "ZuluSCSI_config.h"
+#include "ZuluSCSI_live_monitor.h"
+#include "ZuluSCSI_tape_create.h"
 #include <ZuluSCSI_log.h>
 #include <ZuluSCSI_control_api.h>
 #include <string.h>
@@ -87,6 +89,9 @@ typedef enum
     MEDIA_MENU_DEVICE_LIST,    // Waiting for device index digit or 'b'
     MEDIA_MENU_DEVICE_ACTIONS, // Waiting for action key for selected device
     MEDIA_MENU_IMAGE_LIST,     // Waiting for image index digits + Enter or 'b'
+    MEDIA_MENU_CREATE_NAME,    // New empty tape filename (no SD writes yet)
+    MEDIA_MENU_CREATE_CONFIRM, // Explicit y confirmation
+    MEDIA_MENU_CREATE_PENDING, // Wait for a quiet BUS_FREE window
 } media_menu_state_t;
 
 static media_menu_state_t s_state = MEDIA_MENU_INACTIVE;
@@ -99,6 +104,14 @@ static int     s_image_count = 0;
 // Up to 3 digits for image index entry
 static char s_num_buf[4];
 static int  s_num_len = 0;
+
+// Only metadata creation is allowed online; never run the startup zero-fill
+// loop or borrow scsiDev.data during live SCSI operation.
+static char s_create_name[65] = {};
+static size_t s_create_len = 0;
+static uint32_t s_create_last_io_ms = 0;
+static LiveImageIoCounters s_create_previous[S2S_MAX_TARGETS] = {};
+static const uint32_t CREATE_TAPE_QUIET_MS = 3000;
 
 // -----------------------------------------------------------------------
 // Display helpers
@@ -185,6 +198,8 @@ static void show_device_actions()
     serial_println("    'n' - load next image");
     serial_println("    'e' - eject");
     serial_println("    'i' - insert");
+    if (controlIsTapeDevice(id))
+        serial_println("    'c' - create a NEW empty .tap image (without changing media)");
     serial_println("    'b' - back to device list");
     serial_println("  Or enter image number + Enter to load directly:");
     log_unlock();
@@ -269,14 +284,75 @@ void serialMediaMenuEnter()
     s_selected_idx = -1;
     s_num_len = 0;
     s_num_buf[0] = '\0';
+    s_create_len = 0;
+    s_create_name[0] = '\0';
     s_state = MEDIA_MENU_DEVICE_LIST;
     show_device_list();
+}
+
+// Run only after the platform has returned to BUS_FREE. A create request
+// is deferred until no backing-image I/O has changed for three seconds.
+// This does not provide a hard real-time guarantee: one FAT directory-entry
+// write can still delay an unexpected new SCSI selection, so this remains
+// experimental and never operates during sustained disk/tape traffic.
+void serialMediaMenuPoll()
+{
+    if (s_state != MEDIA_MENU_CREATE_PENDING || scsiDev.phase != BUS_FREE)
+        return;
+
+    const uint32_t now = millis();
+    bool io_changed = false;
+    for (uint8_t id = 0; id < S2S_MAX_TARGETS; ++id)
+    {
+        const LiveImageIoCounters current = liveImageIoSnapshot(id);
+        if (current.readBytes != s_create_previous[id].readBytes ||
+            current.writeBytes != s_create_previous[id].writeBytes)
+            io_changed = true;
+        s_create_previous[id] = current;
+    }
+    if (io_changed)
+        s_create_last_io_ms = now;
+    if (!tapeCreateQuietEnough(now, s_create_last_io_ms, CREATE_TAPE_QUIET_MS))
+        return;
+
+    const uint8_t id = s_removable_ids[s_selected_idx];
+    char new_path[MAX_FILE_PATH + 1];
+    // Change state first: no repeat creation even on an SD error.
+    s_state = MEDIA_MENU_DEVICE_ACTIONS;
+    const ControlTapeCreateResult result =
+        controlCreateEmptyTapeImage(id, s_create_name,
+                                    new_path, sizeof(new_path));
+    switch (result)
+    {
+        case CONTROL_TAPE_CREATE_OK:
+            serial_out("  Created EMPTY tape image: ");
+            serial_println(new_path);
+            serial_println("  Existing media unchanged. Use 'l' to select the new tape.");
+            break;
+        case CONTROL_TAPE_CREATE_EXISTS:
+            serial_println("  Not created: image already exists (no files changed).");
+            break;
+        case CONTROL_TAPE_CREATE_INVALID_NAME:
+            serial_println("  Not created: invalid filename or path too long.");
+            break;
+        case CONTROL_TAPE_CREATE_NOT_TAPE:
+            serial_println("  Not created: target is not an enabled tape drive.");
+            break;
+        case CONTROL_TAPE_CREATE_NO_DIRECTORY:
+            serial_println("  Not created: tape image directory unavailable.");
+            break;
+        default:
+            serial_println("  Not created: SD filesystem error.");
+            break;
+    }
+    show_device_actions();
 }
 
 void serialMediaMenuProcess(char c)
 {
     // Ignore bare CR/LF when no digits are pending
-    if ((c == '\r' || c == '\n') && s_num_len == 0)
+    if ((c == '\r' || c == '\n') && s_num_len == 0 &&
+        s_state != MEDIA_MENU_CREATE_NAME)
         return;
 
     switch (s_state)
@@ -363,6 +439,27 @@ void serialMediaMenuProcess(char c)
                     s_removable_count = controlListRemovableDevices(
                                             s_removable_ids, S2S_MAX_TARGETS);
                     show_device_list();
+                    break;
+
+                case 'c':
+                case 'C':
+                    if (controlIsTapeDevice(id))
+                    {
+                        s_create_len = 0;
+                        s_create_name[0] = '\0';
+                        s_state = MEDIA_MENU_CREATE_NAME;
+                        serial_println("");
+                        serial_println("  Create an EMPTY .tap image (does NOT mount it)");
+                        serial_println("  Name: letters/numbers/dot/dash/underscore, <=60 chars.");
+                        serial_println("  Type filename and Enter (.tap added if omitted).");
+                        serial_println("  Esc or Ctrl-C cancels. Example: new-save.tap");
+                        serial_out("  Filename: ");
+                    }
+                    else
+                    {
+                        serial_println("  Image creation is available for tape only.");
+                        show_device_actions();
+                    }
                     break;
 
                 case 'l':
@@ -510,6 +607,91 @@ void serialMediaMenuProcess(char c)
 
             serial_println("  Enter image number then Enter, or 'b' to cancel:");
             break;
+        }
+
+        // ------------------------------------------------------------
+        case MEDIA_MENU_CREATE_NAME:
+        {
+            if (c == 27 || c == 3)
+            {
+                serial_println("\r\n  Creation cancelled.");
+                s_state = MEDIA_MENU_DEVICE_ACTIONS;
+                show_device_actions();
+                return;
+            }
+            if (c == '\b' || c == 127)
+            {
+                if (s_create_len)
+                {
+                    s_create_name[--s_create_len] = '\0';
+                    serial_out("\b \b");
+                }
+                return;
+            }
+            if (c == '\r' || c == '\n')
+            {
+                char normalized[65];
+                if (!tapeCreateNormalizeName(s_create_name, normalized,
+                                             sizeof(normalized)))
+                {
+                    serial_println("\r\n  Invalid name: use 1-60 characters, no paths or spaces.");
+                    serial_println("  Escape cancels; edit the name and press Enter:");
+                    serial_out("  Filename: ");
+                    serial_out(s_create_name);
+                    return;
+                }
+                snprintf(s_create_name, sizeof(s_create_name), "%s", normalized);
+                s_create_len = strlen(s_create_name);
+                s_state = MEDIA_MENU_CREATE_CONFIRM;
+                serial_out("\r\n  Create a NEW empty image for tape ID ");
+                serial_out_int(s_removable_ids[s_selected_idx]);
+                serial_out(": ");
+                serial_println(s_create_name);
+                serial_println("  Current mounted tape is NOT changed.");
+                serial_println("  Press 'y' to queue for a quiet BUS_FREE interval, 'b' to cancel.");
+                return;
+            }
+            if (c >= 32 && c <= 126 && s_create_len < 60)
+            {
+                s_create_name[s_create_len++] = c;
+                s_create_name[s_create_len] = '\0';
+                char echo[2] = {c, '\0'};
+                serial_out(echo);
+            }
+            return;
+        }
+
+        // ------------------------------------------------------------
+        case MEDIA_MENU_CREATE_CONFIRM:
+        {
+            if (c == 'y' || c == 'Y')
+            {
+                s_create_last_io_ms = millis();
+                for (uint8_t id = 0; id < S2S_MAX_TARGETS; ++id)
+                    s_create_previous[id] = liveImageIoSnapshot(id);
+                s_state = MEDIA_MENU_CREATE_PENDING;
+                serial_println("  Queued; waiting for 3 seconds without image I/O.");
+                serial_println("  Press 'b' to cancel while queued.");
+            }
+            else if (c == 'b' || c == 'B' || c == 27 || c == 3)
+            {
+                s_state = MEDIA_MENU_DEVICE_ACTIONS;
+                serial_println("  Creation cancelled.");
+                show_device_actions();
+            }
+            return;
+        }
+
+        // ------------------------------------------------------------
+        case MEDIA_MENU_CREATE_PENDING:
+        {
+            if (c == 'b' || c == 'B' || c == 27 || c == 3)
+            {
+                s_state = MEDIA_MENU_DEVICE_ACTIONS;
+                serial_println("  Queued creation cancelled (no file created).");
+                show_device_actions();
+            }
+            return;
         }
 
         default:
