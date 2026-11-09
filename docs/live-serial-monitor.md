@@ -6,7 +6,8 @@ It does not change SCSI device configuration or image contents.
 ## Usage
 
 1. Connect to the ZuluSCSI USB serial console as usual.
-2. Type `v` and then `y` to enter the monitor.
+2. Type `v` once to enter the monitor immediately. It is read-only and
+   needs no confirmation. (Earlier test builds required `vy`.)
 3. The first snapshot appears immediately. Further snapshots arrive every
    five seconds. Type `0` for a ten-second interval or `5` to restore five.
    Type `r` to refresh immediately and `q` to exit.
