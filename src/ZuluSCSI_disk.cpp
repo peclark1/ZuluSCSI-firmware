@@ -28,6 +28,8 @@
 // It is derived from disk.c in SCSI2SD V6.
 
 #include "ZuluSCSI_disk.h"
+#include "ZuluSCSI_live_monitor.h"
+#include <stdio.h>
 #include "ZuluSCSI_log.h"
 #include "ZuluSCSI_config.h"
 #include "ZuluSCSI_settings.h"
@@ -1944,6 +1946,32 @@ image_config_t &scsiDiskGetImageConfig(int target_idx)
 {
     assert(target_idx >= 0 && target_idx < S2S_MAX_TARGETS);
     return g_DiskImages[target_idx];
+}
+
+// Read-only metadata for the serial monitor. Avoid exposing image_config_t or
+// SdFs to the platform module, and never enumerate files or flush an image.
+bool liveImageIoGetStatus(uint8_t scsiId, char *name, size_t nameCapacity,
+                          uint64_t *logicalSize, uint8_t *deviceType)
+{
+    if (scsiId >= S2S_MAX_TARGETS || !name || nameCapacity == 0 ||
+        !logicalSize || !deviceType)
+        return false;
+    name[0] = '\0';
+    image_config_t &img = g_DiskImages[scsiId];
+    if (!img.file.isOpen())
+        return false;
+
+    *logicalSize = img.file.size();
+    *deviceType = (uint8_t)img.deviceType;
+    if (!img.file.getFilename(name, nameCapacity))
+    {
+        if (img.current_image[0])
+            snprintf(name, nameCapacity, "%s", img.current_image);
+        else
+            snprintf(name, nameCapacity, "%s",
+                     img.file.isRaw() ? "(raw/partition image)" : "(unnamed)");
+    }
+    return true;
 }
 
 bool scsiDiskExposesCardFileSystem()
