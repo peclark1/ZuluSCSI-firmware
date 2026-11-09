@@ -16,7 +16,9 @@ reboot or SD-card removal. No online disk zero-fill is implemented.
 - Press `y` to confirm. The operation queues until there have been no
   backing-image reads or writes for 3 seconds and the SCSI phase is BUS_FREE.
   Press `b` while queued to cancel. When finished, the menu displays the
-  created path or a reason it did not create a file.
+  created path or a reason it did not create a file. On success, the
+  console also reports the synchronous SD metadata operation duration in ms
+  so we can measure potential interference with SCSI service.
 - Use `l` to list images; select the newly created one and insert it with
   `i` as appropriate. The image is deliberately **not** mounted or inserted
   automatically. When done, press `b` to return through the menu; if you
