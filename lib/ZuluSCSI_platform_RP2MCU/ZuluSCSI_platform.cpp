@@ -2079,6 +2079,7 @@ static inline uint32_t get_cow_enabled_bit()
 // most one USB CDC packet, and only while the SCSI bus is free. Backing-image
 // counters include tape framing/prefetch; they are not host SCSI bus totals.
 static bool s_live_active = false;
+static bool s_live_resume_after_media = false;
 static uint32_t s_live_interval_ms = 5000;
 static uint32_t s_live_last_report_ms = 0;
 static LiveImageIoCounters s_live_previous[S2S_MAX_TARGETS] = {};
@@ -2178,7 +2179,7 @@ static void liveMonitorPoll()
     if (s_live_row == -1)
     {
         snprintf(line, sizeof(line),
-                 "\r\nZuluSCSI image I/O - refresh %lus (actual per-ID window shown; 5/0/r/q)\r\n"
+                 "\r\nZuluSCSI image I/O - refresh %lus (per-ID window; 5/0/r/q, n:media)\r\n"
                  "Rates: KiB/s, successful backing image reads/writes (not SCSI wire)\r\n",
                  (unsigned long)(s_live_interval_ms / 1000));
         s_live_row = 0;
@@ -2270,6 +2271,8 @@ static usb_input_type_t serial_menu(menu_context_t context)
     if (platform_msc_lock_get()) return USB_INPUT_NONE; // Avoid re-entrant USB events
 
     liveMonitorPoll();
+    if (scsiDev.phase == BUS_FREE && serialMediaMenuActive())
+        serialMediaMenuPoll();
 
     // Capture reboot key sequence
     static usb_input_type_t input_type = USB_INPUT_NONE;
@@ -2287,14 +2290,31 @@ static usb_input_type_t serial_menu(menu_context_t context)
 
         if (s_live_active)
         {
-            liveMonitorInput((char)read);
+            if ((char)read == 'n' || (char)read == 'N')
+            {
+                // Suspend scrolling monitor output while a user navigates
+                // media management. It will resume after they exit the menu.
+                s_live_active = false;
+                s_live_pending = 0;
+                s_live_resume_after_media = true;
+                serialMediaMenuEnter();
+            }
+            else
+            {
+                liveMonitorInput((char)read);
+            }
             return USB_INPUT_NONE;
         }
 
-        // Route to the media submenu while it is active
+        // Route to the media submenu while it is active.
         if (serialMediaMenuActive())
         {
             serialMediaMenuProcess((char)read);
+            if (!serialMediaMenuActive() && s_live_resume_after_media)
+            {
+                s_live_resume_after_media = false;
+                liveMonitorStart();
+            }
             return USB_INPUT_NONE;
         }
 
