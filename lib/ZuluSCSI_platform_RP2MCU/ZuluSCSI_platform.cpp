@@ -2086,6 +2086,11 @@ static uint32_t s_live_previous_ms[S2S_MAX_TARGETS] = {};
 static uint64_t s_live_previous_size[S2S_MAX_TARGETS] = {};
 static uint32_t s_live_previous_name_hash[S2S_MAX_TARGETS] = {};
 static bool s_live_has_previous_size[S2S_MAX_TARGETS] = {};
+// Cache the open-image metadata beside its I/O counters for each device
+// row, keeping the reported rate and image length in the same observation.
+static char s_live_snapshot_name[160] = {};
+static uint64_t s_live_snapshot_size = 0;
+static uint8_t s_live_snapshot_type = 0;
 static int s_live_row = S2S_MAX_TARGETS + 1; // -1 header; 0..N-1 devices; N footer
 static bool s_live_detail = false;
 static char s_live_line[192] = {};
@@ -2131,9 +2136,9 @@ static void liveMonitorInput(char key)
     if (key == '5' || key == '0')
     {
         s_live_interval_ms = (key == '5') ? 5000 : 10000;
-        s_live_row = S2S_MAX_TARGETS + 1;
-        s_live_pending = 0;
-        s_live_last_report_ms = millis() - s_live_interval_ms;
+        // Do not force a short sample on a cadence change; finish any
+        // in-flight serial snapshot and start a full next interval.
+        s_live_last_report_ms = millis();
     }
     else if (key == 'r' || key == 'R')
     {
@@ -2173,7 +2178,7 @@ static void liveMonitorPoll()
     if (s_live_row == -1)
     {
         snprintf(line, sizeof(line),
-                 "\r\nZuluSCSI image I/O - %lus samples (5/0 interval, r refresh, q quit)\r\n"
+                 "\r\nZuluSCSI image I/O - refresh %lus (actual per-ID window shown; 5/0/r/q)\r\n"
                  "Rates: KiB/s, successful backing image reads/writes (not SCSI wire)\r\n",
                  (unsigned long)(s_live_interval_ms / 1000));
         s_live_row = 0;
@@ -2189,19 +2194,17 @@ static void liveMonitorPoll()
     }
 
     const uint8_t id = (uint8_t)s_live_row;
-    char filename[160] = {};
-    uint64_t size = 0;
-    uint8_t deviceType = 0;
-    if (!liveImageIoGetStatus(id, filename, sizeof(filename), &size, &deviceType))
-    {
-        s_live_row++;
-        s_live_detail = false;
-        s_live_has_previous_size[id] = false;
-        return;
-    }
-
     if (!s_live_detail)
     {
+        if (!liveImageIoGetStatus(id, s_live_snapshot_name,
+                                  sizeof(s_live_snapshot_name),
+                                  &s_live_snapshot_size, &s_live_snapshot_type))
+        {
+            s_live_row++;
+            s_live_has_previous_size[id] = false;
+            return;
+        }
+
         const LiveImageIoCounters current = liveImageIoSnapshot(id);
         uint32_t elapsed = (uint32_t)(now - s_live_previous_ms[id]);
         if (!elapsed) elapsed = 1;
@@ -2209,42 +2212,45 @@ static void liveMonitorPoll()
         const uint64_t writeDelta = current.writeBytes - s_live_previous[id].writeBytes;
         const uint64_t readOps = current.readCalls - s_live_previous[id].readCalls;
         const uint64_t writeOps = current.writeCalls - s_live_previous[id].writeCalls;
-        const uint64_t readRate = (readDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
-        const uint64_t writeRate = (writeDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
-        const char *kind = deviceType == S2S_CFG_FIXED ?
+        const uint64_t readRate = liveImageIoRateKiBPerSec(readDelta, elapsed);
+        const uint64_t writeRate = liveImageIoRateKiBPerSec(writeDelta, elapsed);
+        const char *kind = s_live_snapshot_type == S2S_CFG_FIXED ?
                            "Disk" : controlGetDeviceTypeName(id);
         snprintf(line, sizeof(line),
-                 " ID%u %-9s R:%llu W:%llu KiB/s  calls R:%llu W:%llu\r\n",
+                 " ID%u %-9s R:%llu W:%llu KiB/s calls R:%llu W:%llu dt:%lu.%01lus\r\n",
                  (unsigned)id, kind,
                  (unsigned long long)readRate, (unsigned long long)writeRate,
-                 (unsigned long long)readOps, (unsigned long long)writeOps);
+                 (unsigned long long)readOps, (unsigned long long)writeOps,
+                 (unsigned long)(elapsed / 1000),
+                 (unsigned long)((elapsed % 1000) / 100));
         s_live_previous[id] = current;
         s_live_previous_ms[id] = now;
         s_live_detail = true;
     }
     else
     {
-        // Changing cartridges/images is not growth of the previous image.
-        const char *identity = filename;
+        // A cartridge change must not be treated as growth of its predecessor.
         uint32_t name_hash = 2166136261u;
-        for (const char *p = identity; *p; ++p)
+        for (const char *p = s_live_snapshot_name; *p; ++p)
             name_hash = (name_hash ^ (uint8_t)*p) * 16777619u;
+
+        const uint64_t size = s_live_snapshot_size;
         const uint64_t before = s_live_previous_size[id];
         const bool grew = size >= before;
         const bool same_image = s_live_has_previous_size[id] &&
             s_live_previous_name_hash[id] == name_hash;
         const uint64_t difference = same_image ?
             (grew ? size - before : before - size) : 0;
-        const char *basename = strrchr(filename, '/');
-        basename = basename ? basename + 1 : filename;
+        const char *basename = strrchr(s_live_snapshot_name, '/');
+        basename = basename ? basename + 1 : s_live_snapshot_name;
+        char sizeLabel[48];
+        char changeLabel[64];
+        liveImageIoFormatBytes(sizeLabel, sizeof(sizeLabel), size);
+        liveImageIoFormatChange(changeLabel, sizeof(changeLabel),
+                                difference, !grew, same_image);
         snprintf(line, sizeof(line),
-                 "     %.64s  size:%llu.%01lluMiB  %c%llu.%01lluMiB\r\n",
-                 basename,
-                 (unsigned long long)(size / 1048576ULL),
-                 (unsigned long long)((size % 1048576ULL) * 10 / 1048576ULL),
-                 grew ? '+' : '-',
-                 (unsigned long long)(difference / 1048576ULL),
-                 (unsigned long long)((difference % 1048576ULL) * 10 / 1048576ULL));
+                 "     %.64s  size:%s  delta:%s\r\n",
+                 basename, sizeLabel, changeLabel);
         s_live_previous_size[id] = size;
         s_live_previous_name_hash[id] = name_hash;
         s_live_has_previous_size[id] = true;
