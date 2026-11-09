@@ -3,7 +3,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-static const size_t ZTAPE_EXPORT_MAX_CHUNK = 1024;
+// 4 KiB is an *upper bound*, not a new default. The client still requests
+// 1 KiB unless explicitly configured; try larger chunks only after measuring
+// SCSI-host latency and verifying the complete tape byte-for-byte.
+static const size_t ZTAPE_EXPORT_MAX_CHUNK = 4096;
 static const size_t ZTAPE_EXPORT_HEADER_SIZE = 18;
 
 // The packet on USB CDC is: "ZT1D", offset(u64 LE), count(u16 LE),
