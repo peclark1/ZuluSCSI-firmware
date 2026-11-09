@@ -1,6 +1,5 @@
 // Native host regression tests for the hot-path Live Monitor counters.
-// Run: g++ -std=c++11 -Wall -Wextra -Werror -Itest/stubs \
-//          test/live_monitor_counters.cpp -o /tmp/zulu-live-test && /tmp/zulu-live-test
+// Run the command in docs/live-serial-monitor.md to compile and execute.
 #include <assert.h>
 #include <stdint.h>
 #include "../src/ZuluSCSI_live_monitor.h"
