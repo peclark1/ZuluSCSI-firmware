@@ -32,8 +32,14 @@ disposable images on an idle system. Do not flash new firmware during a save.
    ```
 
 6. The downloader requests `f` from the ordinary serial console or active
-   Live Monitor, opens only the specified tape image for reading, and
-   requests blocks while idle. On completion it computes SHA-256 locally,
+   Live Monitor. Firmware first *arms* the export and logs `ZT1 ARMED`,
+   without blocking USB console logs or opening any files. The downloader
+   responds with `HELLO ZT1` and receives `ZT1 READY`, at which point
+   export takes exclusive ownership of the serial stream. If `f` was
+   pressed accidentally, press `q` (or Escape / Ctrl-C) to cancel; otherwise
+   the arm expires automatically after 15 seconds. Once confirmed, it opens
+   only the specified tape image for reading and requests blocks while idle.
+   On completion it computes SHA-256 locally,
    atomically exposes the file with its final name, and leaves the source
    image on the card intact.
 7. If interrupted, rerun the same command with `--resume` after the source
@@ -44,13 +50,16 @@ disposable images on an idle system. Do not flash new firmware during a save.
 
 ## ZT1 protocol
 
-The `f` console key enters a dedicated USB serial transfer session and
-temporarily stops the Live Monitor. USB log emission is suppressed while
-the protocol is active; internal logging continues. Once the session ends,
-console logging and (when applicable) the Live Monitor resume. The protocol
-is **stop-and-wait**; do not pipeline commands.
+The `f` console key **arms** a dedicated USB serial transfer session and
+temporarily stops the Live Monitor. The firmware continues emitting ordinary
+USB logs while armed. A separate client handshake is required before binary
+mode is activated and USB log emission suppressed. Internal logging continues.
+Once the session ends, console logging and (when applicable) the Live Monitor
+resume. The protocol is **stop-and-wait**; do not pipeline commands.
 
-- `f` (single byte, no newline) -> `ZT1 READY\n`
+- `f` (single byte, no newline) -> log message containing `ZT1 ARMED`;
+  15-second timeout if no client handshake
+- `HELLO ZT1\n` -> `ZT1 READY\n` (begins exclusive transfer session)
 - `OPEN <scsi-id> <tape-name.tap>\n` -> `ZT1 SIZE <size-bytes>\n` or
   `ZT1 ERR <code>\n`. Filenames must be simple ASCII basenames; no paths
   or spaces, no arbitrary SD-card read access. The image is opened
@@ -60,7 +69,9 @@ is **stop-and-wait**; do not pipeline commands.
   count, uint32 little-endian CRC32/IEEE of payload, followed by exactly
   count bytes. Errors respond `ZT1 ERR <code>\n` instead.
 - `CLOSE\n` -> `ZT1 CLOSED\n`
-- `QUIT\n` -> `ZT1 BYE\n`
+- `QUIT\n` -> `ZT1 BYE\n`. For an accidental interactive session,
+  a lowercase `q` by itself, Escape, or Ctrl-C cancels without needing
+  the downloader.
 - `PING\n` -> `ZT1 PONG\n`
 
 Each chunk is CRC-checked by the Ubuntu host before being saved. The host
@@ -111,3 +122,15 @@ For preservation, retain the source until independent verification.
    compare the downloaded file against the SD image after safe shutdown.
 6. Run concurrent disk I/O latency measurements before using this for
    non-idle copying. Do not assume a mere `BUS_FREE` check is sufficient.
+
+### 2026-11-09 startup observation
+
+A real Blaster running merged firmware `cf3a998` emitted `ZT1 READY`
+very early in startup followed by several `ZT1 ERR BAD_REQUEST` responses.
+That is evidence the earlier one-byte `f` activation was triggered and
+later ordinary input was being treated as protocol commands; it is **not**
+evidence of a SCSI or tape-image error. This revision requires `HELLO ZT1`
+and ignores unrelated input while armed so an accidental `f` cannot seize
+the USB port indefinitely. The console's staggered startup text is likely
+an independent LF/carriage-return terminal display setting, which should
+be diagnosed separately.
