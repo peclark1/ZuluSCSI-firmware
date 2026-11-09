@@ -24,6 +24,7 @@
 #include "ZuluSCSI_config.h"
 #include "ZuluSCSI_live_monitor.h"
 #include "ZuluSCSI_tape_create.h"
+#include <scsi.h> // BUS_FREE phase for deferred SD metadata writes
 #include <ZuluSCSI_log.h>
 #include <ZuluSCSI_control_api.h>
 #include <string.h>
