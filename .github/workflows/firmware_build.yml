@@ -60,6 +60,18 @@ jobs:
               test/tape_create_helpers.cpp -o /tmp/zulu-create-tape-test
           /tmp/zulu-create-tape-test
 
+      - name: Test USB tape export framing (native C++)
+        run: |
+          cd ZuluSCSI
+          g++ -std=c++11 -Wall -Wextra -Werror \
+              test/tape_export_protocol.cpp -o /tmp/zulu-export-proto-test
+          /tmp/zulu-export-proto-test
+
+      - name: Test USB tape export client (fake serial)
+        run: |
+          cd ZuluSCSI
+          python3 -m unittest -v test.test_tape_export_client
+
       - name: Build firmware
         run: |
           cd ZuluSCSI
