@@ -18,6 +18,7 @@ class FakeSerial:
         self.incoming = bytearray()
         self.commands = bytearray()
         self.in_protocol = False
+        self.armed = False
         self.closed = False
         self.bad_crc_once = False
         self.read_count = 0
@@ -27,11 +28,15 @@ class FakeSerial:
 
     def write(self, data):
         if not self.in_protocol:
-            if data != b"f":
-                raise AssertionError(data)
-            self.in_protocol = True
-            self.incoming.extend(b"ZT1 READY\n")
-            return len(data)
+            if not self.armed and data == b"f":
+                self.armed = True
+                self.incoming.extend(b"[Boot] ZT1 ARMED: send HELLO ZT1\n")
+                return len(data)
+            if self.armed and data == b"HELLO ZT1\n":
+                self.in_protocol = True
+                self.incoming.extend(b"ZT1 READY\n")
+                return len(data)
+            raise AssertionError("handshake missing or invalid: " + repr(data))
         self.commands.extend(data)
         while b"\n" in self.commands:
             line, _, rest = self.commands.partition(b"\n")
