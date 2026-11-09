@@ -21,6 +21,7 @@
 
 #include "ZuluSCSI_control_api.h"
 #include "ZuluSCSI_tape_create.h"
+#include "ZuluSCSI_tape_export_protocol.h"
 #include "ZuluSCSI_disk.h"
 #include "ZuluSCSI_cdrom.h"
 #include "ZuluSCSI_log.h"
@@ -471,4 +472,152 @@ ControlTapeCreateResult controlCreateEmptyTapeImage(
     // A failed close/sync must not be advertised as a successful creation.
     return (empty && closed) ? CONTROL_TAPE_CREATE_OK :
                                CONTROL_TAPE_CREATE_SD_ERROR;
+}
+
+// -----------------------------------------------------------------------
+// Read-only export of completed, closed SIMH .tap images over USB serial.
+// IMPORTANT: an ejected tape may STILL have its file handle open. Reject
+// that condition even when the host reports "medium not present".
+// -----------------------------------------------------------------------
+static FsFile s_tape_export_file;
+static uint64_t s_tape_export_size = 0;
+static char s_tape_export_basename[MAX_FILE_PATH + 1] = {};
+
+static const char *tapeExportBase(const char *name)
+{
+    const char *slash = strrchr(name, '/');
+    const char *backslash = strrchr(name, '\\');
+    if (backslash && (!slash || backslash > slash)) slash = backslash;
+    return slash ? slash + 1 : name;
+}
+
+static bool tapeExportSafeName(const char *basename)
+{
+    if (!basename) return false;
+    const size_t n = strlen(basename);
+    if (n < 5 || n > 120 || n >= MAX_FILE_PATH ||
+        basename[0] == '.' || basename[0] == '-')
+        return false;
+
+    const char *extension = basename + n - 4;
+    if (strcasecmp(extension, ".tap") != 0)
+        return false;
+    for (size_t i = 0; i < n; ++i)
+    {
+        const char c = basename[i];
+        const bool safe = (c >= 'A' && c <= 'Z') ||
+                          (c >= 'a' && c <= 'z') ||
+                          (c >= '0' && c <= '9') ||
+                          c == '.' || c == '_' || c == '-';
+        if (!safe || (c == '.' && i && basename[i - 1] == '.'))
+            return false;
+    }
+    return true;
+}
+
+static bool tapeExportIsOpenInAnyTarget(const char *basename)
+{
+    for (uint8_t id = 0; id < S2S_MAX_TARGETS; ++id)
+    {
+        image_config_t &img = scsiDiskGetImageConfig(id);
+        if (!img.file.isOpen()) continue;
+        char active[MAX_FILE_PATH + 1] = {};
+        // Keep a conservative fallback in case the backing store cannot
+        // resolve its actual name (e.g. an unusual partition/raw mode).
+        if (!img.file.getFilename(active, sizeof(active)) || !active[0])
+        {
+            strncpy(active, img.current_image, sizeof(active) - 1);
+        }
+        if (active[0] && strcasecmp(tapeExportBase(active), basename) == 0)
+            return true;
+    }
+    return false;
+}
+
+struct TapeExportMatch
+{
+    const char *requested;
+    char path[MAX_FILE_PATH + 1];
+    bool found;
+};
+
+static void tapeExportFindCallback(int, const char *filename,
+                                   const char *path, uint64_t, bool is_dir,
+                                   void *userdata)
+{
+    TapeExportMatch *match = (TapeExportMatch *)userdata;
+    if (is_dir || match->found || strcmp(filename, match->requested) != 0)
+        return;
+    if (strlen(path) >= sizeof(match->path))
+        return;
+    strcpy(match->path, path);
+    match->found = true;
+}
+
+void controlTapeExportClose()
+{
+    if (s_tape_export_file.isOpen())
+        s_tape_export_file.close();
+    s_tape_export_size = 0;
+    s_tape_export_basename[0] = '\0';
+}
+
+ControlTapeExportResult controlTapeExportValidate()
+{
+    if (!s_tape_export_file.isOpen())
+        return CONTROL_TAPE_EXPORT_BAD_REQUEST;
+    if (tapeExportIsOpenInAnyTarget(s_tape_export_basename))
+        return CONTROL_TAPE_EXPORT_IN_USE;
+    if (s_tape_export_file.size() != s_tape_export_size)
+        return CONTROL_TAPE_EXPORT_CHANGED;
+    return CONTROL_TAPE_EXPORT_OK;
+}
+
+ControlTapeExportResult controlTapeExportOpen(
+    uint8_t scsi_id, const char *basename, uint64_t *size_out)
+{
+    controlTapeExportClose();
+    if (!size_out || !tapeExportSafeName(basename))
+        return CONTROL_TAPE_EXPORT_BAD_REQUEST;
+    if (!controlIsTapeDevice(scsi_id))
+        return CONTROL_TAPE_EXPORT_NOT_TAPE;
+
+    TapeExportMatch match = {basename, {}, false};
+    // The existing image enumerator resolves ImgDir and prefix-mode layouts.
+    controlListImages(scsi_id, tapeExportFindCallback, &match);
+    if (!match.found)
+        return CONTROL_TAPE_EXPORT_NOT_FOUND;
+    if (tapeExportIsOpenInAnyTarget(basename))
+        return CONTROL_TAPE_EXPORT_IN_USE;
+
+    if (!s_tape_export_file.open(match.path, O_RDONLY))
+        return CONTROL_TAPE_EXPORT_IO_ERROR;
+    if (!s_tape_export_file.isFile())
+    {
+        controlTapeExportClose();
+        return CONTROL_TAPE_EXPORT_BAD_REQUEST;
+    }
+
+    s_tape_export_size = s_tape_export_file.size();
+    strncpy(s_tape_export_basename, basename, sizeof(s_tape_export_basename) - 1);
+    s_tape_export_basename[sizeof(s_tape_export_basename) - 1] = '\0';
+    *size_out = s_tape_export_size;
+    return CONTROL_TAPE_EXPORT_OK;
+}
+
+ControlTapeExportResult controlTapeExportRead(uint64_t offset,
+                                              void *buffer, size_t length)
+{
+    const ControlTapeExportResult safe = controlTapeExportValidate();
+    if (safe != CONTROL_TAPE_EXPORT_OK)
+        return safe;
+    if (!buffer || length == 0 || length > ZTAPE_EXPORT_MAX_CHUNK ||
+        offset > s_tape_export_size ||
+        length > s_tape_export_size - offset)
+        return CONTROL_TAPE_EXPORT_BAD_REQUEST;
+
+    if (!s_tape_export_file.seekSet(offset) ||
+        s_tape_export_file.read(buffer, length) != (int)length)
+        return CONTROL_TAPE_EXPORT_IO_ERROR;
+    return CONTROL_TAPE_EXPORT_OK;
 }
