@@ -13,7 +13,9 @@ It does not change SCSI device configuration or image contents.
    Changing cadence schedules the *next* sample after the new interval;
    it does not force a misleading short sample. Type `r` to refresh
    immediately (this can produce a shorter actual measurement window),
-   or `q` to exit.
+   or `q` to exit. On experimental branches with online tape creation,
+   press `n` for Media Management; the monitor pauses, and resumes when
+   you exit the media menu.
 4. The existing `m` menu remains available separately to enumerate removable
    media images and their sizes. The monitor only displays **open images**.
 
