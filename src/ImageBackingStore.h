@@ -221,6 +221,11 @@ protected:
     bool m_isfolder;
     char m_foldername[MAX_FILE_PATH + 1];
 
+    // Underlying image transfer paths, wrapped by read()/write() to count
+    // completed bytes only (including COW, gapped and SdFat paths).
+    ssize_t readImpl(void* buf, size_t count);
+    ssize_t writeImpl(const void* buf, size_t count);
+
     bool _internal_open(const char *filename);
 
     void revert_to_noncontiguous();
