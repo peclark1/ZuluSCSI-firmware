@@ -21,6 +21,7 @@
  **/
 
 #include "ImageBackingStore.h"
+#include "ZuluSCSI_live_monitor.h"
 #include <SdFat.h>
 #include <ZuluSCSI_platform.h>
 #include "ZuluSCSI.h"
@@ -853,6 +854,13 @@ bool ImageBackingStore::seek(uint64_t pos)
 
 ssize_t ImageBackingStore::read(void* buf, size_t count)
 {
+    const ssize_t completed = readImpl(buf, count);
+    liveImageIoRecord(m_iotraceScsiId, false, completed);
+    return completed;
+}
+
+ssize_t ImageBackingStore::readImpl(void* buf, size_t count)
+{
 #if ENABLE_COW
     // Handle Copy-on-Write mode
     if (m_iscow)
@@ -941,6 +949,13 @@ ssize_t ImageBackingStore::read(void* buf, size_t count)
 }
 
 ssize_t ImageBackingStore::write(const void* buf, size_t count)
+{
+    const ssize_t completed = writeImpl(buf, count);
+    liveImageIoRecord(m_iotraceScsiId, true, completed);
+    return completed;
+}
+
+ssize_t ImageBackingStore::writeImpl(const void* buf, size_t count)
 {
     #if ENABLE_COW
     // Handle Copy-on-Write mode
