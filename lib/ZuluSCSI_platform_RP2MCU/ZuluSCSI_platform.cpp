@@ -43,7 +43,6 @@
 #include "custom_timings.h"
 #include <ZuluSCSI_settings.h>
 #include "ZuluSCSI_usb_console_media.h"
-#include "ZuluSCSI_disk.h"
 #include "ZuluSCSI_live_monitor.h"
 #include <ZuluSCSI_control_api.h>
 #include <stdio.h>
@@ -2191,11 +2190,14 @@ static void liveMonitorPoll()
     }
 
     const uint8_t id = (uint8_t)s_live_row;
-    image_config_t &img = scsiDiskGetImageConfig(id);
-    if (!img.file.isOpen())
+    char filename[160] = {};
+    uint64_t size = 0;
+    uint8_t deviceType = 0;
+    if (!liveImageIoGetStatus(id, filename, sizeof(filename), &size, &deviceType))
     {
         s_live_row++;
         s_live_detail = false;
+        s_live_has_previous_size[id] = false;
         return;
     }
 
@@ -2210,7 +2212,7 @@ static void liveMonitorPoll()
         const uint64_t writeOps = current.writeCalls - s_live_previous[id].writeCalls;
         const uint64_t readRate = (readDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
         const uint64_t writeRate = (writeDelta * 1000ULL) / ((uint64_t)elapsed * 1024ULL);
-        const char *kind = img.deviceType == S2S_CFG_FIXED ?
+        const char *kind = deviceType == S2S_CFG_FIXED ?
                            "Disk" : controlGetDeviceTypeName(id);
         snprintf(line, sizeof(line),
                  " ID%u %-9s R:%llu W:%llu KiB/s  calls R:%llu W:%llu\r\n",
@@ -2223,19 +2225,8 @@ static void liveMonitorPoll()
     }
     else
     {
-        // size() and getFilename() query the already-open image; no rescan.
-        const uint64_t size = img.file.size();
-        char filename[MAX_FILE_PATH + 1] = {};
-        if (!img.file.getFilename(filename, sizeof(filename)))
-        {
-            if (img.current_image[0])
-                snprintf(filename, sizeof(filename), "%s", img.current_image);
-            else
-                snprintf(filename, sizeof(filename), "%s",
-                         img.file.isRaw() ? "(raw/partition image)" : "(unnamed)");
-        }
         // Changing cartridges/images is not growth of the previous image.
-        const char *identity = img.current_image[0] ? img.current_image : filename;
+        const char *identity = filename;
         uint32_t name_hash = 2166136261u;
         for (const char *p = identity; *p; ++p)
             name_hash = (name_hash ^ (uint8_t)*p) * 16777619u;
