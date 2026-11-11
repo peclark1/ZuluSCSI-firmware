@@ -418,6 +418,9 @@ void parseCustomInquiryData(uint8_t scsiId, S2S_CFG_TYPE type)
 
     // Fall back to a built-in AS/400 identity when nothing else supplies one.
     selectAS400Builtin(scsiId, type);
+    // The B10 must not wait for sidecar file I/O while completing its first
+    // MODE SENSE command: discover saved parameters during the boot scan.
+    if (type == S2S_CFG_FIXED) as400ModePersistenceWarm(scsiId);
 #else
     (void)scsiId;
     (void)type;
