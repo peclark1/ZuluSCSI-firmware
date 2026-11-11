@@ -39,6 +39,9 @@ int modePageEncodeSector(const ModePageTable *saved, uint32_t sequence,
                          uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
 int modePageDecodeSector(ModePageTable *saved, uint32_t *sequence,
                          const uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
+// True when a sector belongs to this journal, including an interrupted
+// initial write whose magic is only partially programmed.
+int modePageJournalOwned(const uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
 // -1: neither valid. Else 0..3, newest sequence modulo 32-bit wrap.
 int modePageNewest(int count, const uint8_t valid[4],
                    const uint32_t sequences[4]);
