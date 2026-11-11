@@ -247,6 +247,7 @@ int modePageVerifySector(const ModePageTable *expected,uint32_t sequence,
         return 0;
     unsigned n=(unsigned)sector[6]|((unsigned)sector[7]<<8);
     return !memcmp(sector,"ZMPJ",4) && sector[4]==1 && sector[5]==0 &&
+           sector[20]==0xff && sector[31]==0xff &&
            n==expected->used && get32(sector+8)==sequence &&
            get32(sector+16)==crc32(sector,16) &&
            get32(sector+12)==crc32(sector+MODE_PAGE_RECORD_HEADER,n) &&
