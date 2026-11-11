@@ -896,6 +896,7 @@ static void doModeSelect(void)
 			idx_check += 2 + pageLen;
 		}
 
+		// Store device-specific parameter byte (byte 2 for 6-byte, byte 3 for 10-byte)
 		// For direct-access disks, build an immutable baseline using our
 		// normal MODE SENSE handler, then validate and stage all pages before
 		// committing a snapshot to flash. Copy the incoming parameter list
@@ -933,7 +934,7 @@ static void doModeSelect(void)
 			goto out;
 		}
 
-		// Store device-specific parameter byte (byte 2 for 6-byte, byte 3 for 10-byte)
+
 		// For sequential devices this contains buffered mode in bits 6-4
 		if (scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL)
 		{
