@@ -1,6 +1,7 @@
 // Experimental IBM 0671S15 saved MODE pages. GPL-3.0-or-later.
 // Two alternating checksummed SD records; no flash or .hda writes.
 #include "as400_mode_persistence.h"
+#include <ZuluSCSI_platform_config.h>
 #ifdef PLATFORM_AS400
 #include "as400_mode_pages.h"
 #include "custom_vendor_inquiry.h"
