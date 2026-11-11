@@ -20,7 +20,7 @@
 // Custom SCSI inquiry data (VPD/SPD) from INI configuration
 
 #include "custom_vendor_inquiry.h"
-#include "as400_mode_persistence.h"
+#include "mode_page_persistence.h"
 
 #include "zpdb_profiles.h"
 #include "ZuluSCSI_log.h"
@@ -271,7 +271,7 @@ static const uint8_t *findBuiltinVPD(const uint8_t (*pages)[255], size_t count,
 // data differing across multiple IDs at once.
 void resetCustomInquiryData()
 {
-    as400ModePersistenceReset();
+    modePersistenceReset();
     zpdbUnbindAll();
     memset(g_builtin, 0, sizeof(g_builtin));
 #ifdef PLATFORM_AS400
@@ -418,9 +418,6 @@ void parseCustomInquiryData(uint8_t scsiId, S2S_CFG_TYPE type)
 
     // Fall back to a built-in AS/400 identity when nothing else supplies one.
     selectAS400Builtin(scsiId, type);
-    // The B10 must not wait for sidecar file I/O while completing its first
-    // MODE SENSE command: discover saved parameters during the boot scan.
-    if (type == S2S_CFG_FIXED) as400ModePersistenceWarm(scsiId);
 #else
     (void)scsiId;
     (void)type;
