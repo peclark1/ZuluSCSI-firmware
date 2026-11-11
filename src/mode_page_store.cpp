@@ -167,13 +167,15 @@ int modePageSense(const ModePageState *state, uint64_t identity, int pc,
         if(pc==0) value=findEntry(&state->current,identity,sense[pos]&0x3f);
         if(pc==3) value=findEntry(&state->saved,identity,sense[pos]&0x3f);
         if(pc==1) {
-            // For newly modeled pages, indicate all stored bytes can be
-            // selected. Otherwise retain the firmware's existing mask.
-            value=findEntry(&state->current,identity,sense[pos]&0x3f);
-        }
-        if(value && value[9]==n) {
-            if(pc==1) memset(sense+pos+2,0xff,n);
-            else memcpy(sense+pos+2,value+10,n);
+            // Report page data as changeable on the opt-in metadata overlay,
+            // with the format-device sector length still read-only.
+            memset(sense+pos+2,0xff,n);
+            if((sense[pos]&0x3f)==3 && n>=12) {
+                sense[pos+12]=0;
+                sense[pos+13]=0;
+            }
+        } else if(value && value[9]==n) {
+            memcpy(sense+pos+2,value+10,n);
         }
         pos+=2+n;
     }
@@ -207,17 +209,19 @@ int modePageDecodeSector(ModePageTable *saved, uint32_t *sequence,
         return 0;
     // Reject a valid-CRC but malformed/duplicated payload before trusting it.
     size_t pos=0;
-    uint64_t keys[64]; uint8_t pages[64]; int count=0;
     while(pos<n) {
         if(n-pos<10) return 0;
         const uint8_t *p=sector+MODE_PAGE_RECORD_HEADER+pos;
         unsigned step=entrySize(p);
         if(step>n-pos || (p[8]&0xc0)) return 0;
-        uint64_t key=entryKey(p);
-        for(int i=0;i<count;i++)
-            if(keys[i]==key&&pages[i]==p[8]) return 0;
-        if(count>=64) return 0;
-        keys[count]=key; pages[count++]=p[8];
+        // No arbitrary maximum number of pages: validate duplicates by
+        // walking the already-validated prefix of this compact snapshot.
+        size_t earlier=0;
+        while(earlier<pos) {
+            const uint8_t *q=sector+MODE_PAGE_RECORD_HEADER+earlier;
+            if(entryKey(q)==entryKey(p) && q[8]==p[8]) return 0;
+            earlier+=entrySize(q);
+        }
         pos+=step;
     }
     saved->used=(uint16_t)n;
