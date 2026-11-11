@@ -158,6 +158,14 @@ int main()
     memset(broken,0xff,sizeof(broken));
     memcpy(broken,recordA,13); // interrupted/partial inactive-slot write
     CHECK(!as400ModeDecode(&boot,keyA,broken,&sequence));
+    CHECK(as400ModePreferredSlot(1,7,0,0) == 0);
+    CHECK(as400ModePreferredSlot(0,0,1,8) == 1);
+    CHECK(as400ModePreferredSlot(0,0,0,0) == -1);
+    CHECK(as400ModePreferredSlot(1,7,1,6) == 0);
+    CHECK(as400ModePreferredSlot(1,7,1,8) == 1);
+    CHECK(as400ModePreferredSlot(1,0xffffffffu,1,0) == 1);
+    CHECK(as400ModePreferredSlot(1,0,1,0xffffffffu) == 0);
+
     // Active slot A still provides valid durable state after a torn B write.
     CHECK(as400ModeInit(&boot,sense6,sizeof(sense6)));
     CHECK(as400ModeDecode(&boot,keyA,recordA,&sequence));
