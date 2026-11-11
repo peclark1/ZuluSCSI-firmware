@@ -20,6 +20,7 @@
 // Custom SCSI inquiry data (VPD/SPD) from INI configuration
 
 #include "custom_vendor_inquiry.h"
+#include "as400_mode_persistence.h"
 
 #include "zpdb_profiles.h"
 #include "ZuluSCSI_log.h"
@@ -270,6 +271,7 @@ static const uint8_t *findBuiltinVPD(const uint8_t (*pages)[255], size_t count,
 // data differing across multiple IDs at once.
 void resetCustomInquiryData()
 {
+    as400ModePersistenceReset();
     zpdbUnbindAll();
     memset(g_builtin, 0, sizeof(g_builtin));
 #ifdef PLATFORM_AS400
@@ -835,6 +837,13 @@ bool getCustomModeSense(uint8_t scsiId, uint8_t *buf, uint16_t *length)
 }
 
 #ifdef PLATFORM_AS400
+bool getAS400DiskSerialOverride(uint8_t scsiId, uint8_t serial[8])
+{
+    uint8_t id = scsiId & S2S_CFG_TARGET_ID_BITS;
+    if (g_as400_serial_override[id].length != 8) return false;
+    memcpy(serial, g_as400_serial_override[id].data, 8);
+    return true;
+}
 bool getAS400ProfileCapacity(uint8_t scsiId, uint32_t *blockSize, uint32_t *sectors)
 {
     uint8_t id = scsiId & S2S_CFG_TARGET_ID_BITS;
