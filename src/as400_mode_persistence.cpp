@@ -134,10 +134,11 @@ bool initialize(uint8_t scsiId)
     uint32_t seqA = 0, seqB = 0;
     bool validA = readSlot(t.identity, 0, &a, &seqA);
     bool validB = readSlot(t.identity, 1, &b, &seqB);
-    if (validA && (!validB || (int32_t)(seqA - seqB) > 0)) {
-        t.pages = a; t.sequence = seqA; t.currentSlot = 0;
-    } else if (validB) {
-        t.pages = b; t.sequence = seqB; t.currentSlot = 1;
+    t.currentSlot = as400ModePreferredSlot(validA, seqA, validB, seqB);
+    if (t.currentSlot == 0) {
+        t.pages = a; t.sequence = seqA;
+    } else if (t.currentSlot == 1) {
+        t.pages = b; t.sequence = seqB;
     }
     logmsg("-- AS400 MODE: SCSI ID ", (int)id,
            " persistent mode pages enabled; saved record slot ",
