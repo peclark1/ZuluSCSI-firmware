@@ -15,6 +15,9 @@
 #include "ZuluSCSI_settings.h"
 #include "ZuluSCSI_log.h"
 #include "zpdb_profiles.h"
+extern "C" {
+#include <scsi.h>
+}
 
 static_assert(PLATFORM_FLASH_SETTINGS_SIZE == 4 * MODE_PAGE_FLASH_SECTOR,
               "persistent MODE-page journal requires exactly four erase sectors");
@@ -37,6 +40,7 @@ static int g_slot = -1;
 static uint32_t g_sequence;
 static uint64_t g_keys[S2S_MAX_TARGETS];
 static bool g_keysUsed[S2S_MAX_TARGETS];
+static bool g_runtimeApplied[S2S_MAX_TARGETS];
 
 static uint64_t fnvByte(uint64_t key, uint8_t b)
 {
@@ -93,6 +97,17 @@ static bool matchesDevice(uint8_t scsiId)
     if(!img.file.isOpen()) return false;
     return true;
 }
+static void applyDisconnectTiming(uint64_t key)
+{
+    // Keep the existing operational MODE SELECT page-02 behavior, not just
+    // its readback. Standard disconnect-time-limit lives at page offsets
+    // 6..7, i.e. value bytes 4..5. This is the generic 14-byte form.
+    if (!scsiDev.target) return;
+    uint8_t data[255];
+    int n=modePageGet(&g_pages.current,key,2,data,sizeof(data));
+    if(n==14) scsiDev.target->liveCfg.disconnectTimeLimit =
+                ((uint16_t)data[4]<<8) | data[5];
+}
 static bool identity(uint8_t scsiId, uint64_t *key)
 {
     const uint8_t id=scsiId&S2S_CFG_TARGET_ID_BITS;
@@ -105,8 +120,14 @@ static bool identity(uint8_t scsiId, uint64_t *key)
             return false;
         }
     }
+    if(!g_keysUsed[id] || g_keys[id]!=*key)
+        g_runtimeApplied[id]=false;
     g_keys[id]=*key;
     g_keysUsed[id]=true;
+    if(!g_runtimeApplied[id]) {
+        applyDisconnectTiming(*key);
+        g_runtimeApplied[id]=true;
+    }
     return true;
 }
 static bool readSector(unsigned slot,uint8_t *buf)
@@ -185,6 +206,7 @@ extern "C" void modePersistenceReset(void)
     memset(&g_pages,0,sizeof(g_pages));
     memset(&g_staged,0,sizeof(g_staged));
     memset(g_keysUsed,0,sizeof(g_keysUsed));
+    memset(g_runtimeApplied,0,sizeof(g_runtimeApplied));
     g_started=false; g_enabled=false; g_foreign=false; g_allowInit=false;
     g_slot=-1; g_sequence=0;
     initialize();
@@ -222,6 +244,7 @@ extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
         }
     }
     g_pages=g_staged;
+    applyDisconnectTiming(key);
     return 0;
 }
 #else
