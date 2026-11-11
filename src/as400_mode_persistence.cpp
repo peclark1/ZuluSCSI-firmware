@@ -151,6 +151,10 @@ extern "C" void as400ModePersistenceReset(void)
 {
     memset(targets, 0, sizeof(targets));
 }
+extern "C" void as400ModePersistenceWarm(uint8_t id)
+{
+    (void)initialize(id);
+}
 extern "C" int as400ModePersistenceSense(uint8_t id, int ten, int dbd,
                                           int pc, int page, uint8_t *out, int cap)
 {
@@ -186,6 +190,7 @@ extern "C" int as400ModePersistenceSelect(uint8_t id, int ten, int pf, int sp,
 }
 #else
 extern "C" void as400ModePersistenceReset(void) {}
+extern "C" void as400ModePersistenceWarm(uint8_t) {}
 extern "C" int as400ModePersistenceSense(uint8_t, int, int, int, int, uint8_t*, int) { return -1; }
 extern "C" int as400ModePersistenceSelect(uint8_t, int, int, int, const uint8_t*, int) { return -1; }
 #endif
