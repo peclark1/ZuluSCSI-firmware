@@ -98,6 +98,7 @@ the previous saved state.
   MODE SENSE code or immutable ZPDB capture.
 - PC=3 SAVED: overlay the flash-restored saved page bytes.
 - MODE SELECT(6)/(10) PF=1, SP=0 changes only current; SP=1 also saves.
+  PF=0 SCSI-1 vendor-format commands retain the legacy handler.
   The complete multi-page list is validated and staged before any commit.
 - Short MODE SELECT pages such as the real 9404-B10
   `15 11 00 00 16 00` request are accepted when their data fits the
@@ -123,7 +124,6 @@ backing disk image is modified by the flash-mode feature.
 
 ```sh
 python3 utils/test_as400_mode_select_length.py
-python3 utils/test_as400_mode_pages.py
 python3 utils/test_mode_page_store.py
 python3 utils/test_e11_tapes.py
 ```
