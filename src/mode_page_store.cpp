@@ -240,6 +240,18 @@ int modePageDecodeSector(ModePageTable *saved, uint32_t *sequence,
     *sequence=get32(sector+8);
     return 1;
 }
+int modePageVerifySector(const ModePageTable *expected,uint32_t sequence,
+                         const uint8_t sector[MODE_PAGE_FLASH_SECTOR])
+{
+    if(!expected||!sector||expected->used>MODE_PAGE_DATA_CAPACITY)
+        return 0;
+    unsigned n=(unsigned)sector[6]|((unsigned)sector[7]<<8);
+    return !memcmp(sector,"ZMPJ",4) && sector[4]==1 && sector[5]==0 &&
+           n==expected->used && get32(sector+8)==sequence &&
+           get32(sector+16)==crc32(sector,16) &&
+           get32(sector+12)==crc32(sector+MODE_PAGE_RECORD_HEADER,n) &&
+           !memcmp(sector+MODE_PAGE_RECORD_HEADER,expected->bytes,n);
+}
 int modePageJournalOwned(const uint8_t sector[MODE_PAGE_FLASH_SECTOR])
 {
     if(!sector) return 0;
