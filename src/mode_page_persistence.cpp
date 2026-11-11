@@ -84,7 +84,7 @@ static uint64_t keyFor(uint8_t scsiId)
 static bool matchesDevice(uint8_t scsiId)
 {
     const uint8_t id=scsiId&S2S_CFG_TARGET_ID_BITS;
-    const image_config_t &img=scsiDiskGetImageConfig(id);
+    image_config_t &img=scsiDiskGetImageConfig(id);
     if (!(img.deviceType==S2S_CFG_FIXED ||
           img.deviceType==S2S_CFG_REMOVABLE ||
           img.deviceType==S2S_CFG_ZIP100 ||
