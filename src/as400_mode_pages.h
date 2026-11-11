@@ -19,6 +19,10 @@ int as400ModeSelect(const As400ModePages *s, int ten, int sp,
 // MODE SENSE(6/10): complete result length, or -1 for unsupported page/PC.
 int as400ModeSense(const As400ModePages *s, int ten, int dbd, int pc,
                    int page, uint8_t *out, size_t capacity);
+// Selects newest valid journal slot: -1=none, 0=A, 1=B.
+// Handles wrapped 32-bit sequence numbers under the two-slot invariant.
+int as400ModePreferredSlot(int validA, uint32_t seqA,
+                           int validB, uint32_t seqB);
 // Fixed endian-independent record with CRC32; never writes any backing image.
 void as400ModeEncode(const As400ModePages *s, uint64_t identity,
                      uint32_t sequence, uint8_t out[AS400_MODE_RECORD_SIZE]);
