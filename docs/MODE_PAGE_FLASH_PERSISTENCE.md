@@ -104,8 +104,10 @@ the previous saved state.
   `15 11 00 00 16 00` request are accepted when their data fits the
   corresponding, potentially longer, existing MODE SENSE page.
 - Unsupported/duplicate/malformed pages and a request to alter sector
-  length fail without changing any state. Snapshot capacity exhaustion
-  or a flash write/readback failure returns CHECK CONDITION rather than GOOD.
+  length fail without changing any state. Snapshot capacity exhaustion,
+  unavailable/foreign flash after persistence is requested, or a flash
+  write/readback failure returns CHECK CONDITION rather than falsely
+  acknowledging a successful save.
 - MODE page code and subpage must be supported by the existing baseline.
   The firmware's existing MODE SENSE implementation does not expose
   subpages, so SPF/subpages are not newly invented by the persistence layer.
