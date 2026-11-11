@@ -14,7 +14,7 @@ void modePersistenceSense(uint8_t scsiId, int pc, int ten,
 // 2: invalid page/parameter; 3: flash capacity/write/identity failure.
 int modePersistenceSelect(uint8_t scsiId, int ten, int pf, int sp,
                           const uint8_t *data, int len,
-                          int tenBaseline, const uint8_t *baseline, int baselineLen);
+                          int tenBaseline, uint8_t *baseline, int baselineLen);
 #ifdef __cplusplus
 }
 #endif
