@@ -30,6 +30,9 @@ int modePageSelect(const ModePageState *existing, uint64_t identity,
 // pc = current(0), changeable(1), default(2), saved(3).
 int modePageSense(const ModePageState *state, uint64_t identity, int pc,
                   int ten, uint8_t *sense, size_t len);
+// Extract an exact current/saved page payload. Returns bytes, or -1 if absent.
+int modePageGet(const ModePageTable *table, uint64_t identity, int page,
+                uint8_t *out, size_t capacity);
 // Journal wire format v1: magic, version, sequence, used, CRC over payload.
 // A whole flash erase sector holds a snapshot of all saved MODE pages.
 int modePageEncodeSector(const ModePageTable *saved, uint32_t sequence,
