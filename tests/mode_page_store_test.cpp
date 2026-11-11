@@ -121,6 +121,14 @@ int main()
                          1,generic,gn,&staged)==2);
     CHECK(state.saved.used>0); // invalid command did not commit
 
+    // Standard disconnect/reconnect validation: DTDC non-zero cannot
+    // coexist with a non-zero maximum burst size.
+    uint8_t invalidDisc[4+2+14]={0,0,0,0,2,14};
+    memcpy(invalidDisc+6,generic+30,14);
+    invalidDisc[6+10] |= 1;
+    CHECK(modePageSelect(&state,id5,0,1,invalidDisc,sizeof(invalidDisc),
+                         1,generic,gn,&staged)==2);
+
     uint8_t bad[sizeof(select6)];
     memcpy(bad,select6,sizeof(bad));bad[11]=1; // selected 513-byte descriptor
     CHECK(modePageSelect(&state,id5,0,1,bad,sizeof(bad),1,generic,gn,&staged)==2);
