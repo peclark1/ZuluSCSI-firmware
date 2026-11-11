@@ -39,6 +39,10 @@ int modePageEncodeSector(const ModePageTable *saved, uint32_t sequence,
                          uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
 int modePageDecodeSector(ModePageTable *saved, uint32_t *sequence,
                          const uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
+// Verify a freshly programmed record without allocating a second 3584-byte
+// table. The expected saved entries were already validated by MODE SELECT.
+int modePageVerifySector(const ModePageTable *expected, uint32_t sequence,
+                         const uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
 // True when a sector belongs to this journal, including an interrupted
 // initial write whose magic is only partially programmed.
 int modePageJournalOwned(const uint8_t sector[MODE_PAGE_FLASH_SECTOR]);
