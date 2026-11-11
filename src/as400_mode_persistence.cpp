@@ -26,7 +26,8 @@ struct TargetState {
 };
 TargetState targets[S2S_MAX_TARGETS];
 
-uint64_t hashIdentity(const char *profile, const uint8_t serial[8])
+uint64_t hashIdentity(const char *profile, const uint8_t serial[8],
+                      const uint8_t *baseline, size_t baselineLength)
 {
     uint64_t hash = 14695981039346656037ull;
     while (*profile) {
@@ -37,6 +38,12 @@ uint64_t hashIdentity(const char *profile, const uint8_t serial[8])
     hash *= 1099511628211ull;
     for (unsigned i = 0; i < 8; ++i) {
         hash ^= serial[i];
+        hash *= 1099511628211ull;
+    }
+    // Bind the persistent state to the exact immutable MODE SENSE baseline.
+    // Replacing a capture with a different one must not apply stale saved bits.
+    for (size_t i = 0; i < baselineLength; ++i) {
+        hash ^= baseline[i];
         hash *= 1099511628211ull;
     }
     return hash;
@@ -97,7 +104,13 @@ bool initialize(uint8_t scsiId)
     if (!getAS400ProfileCapacity(id, &blockSize, &sectors) || blockSize != 520)
         return false;
     const char *profile = zpdbProfileName(id);
-    if (!profile || strcmp(profile, "IBM_0671S15_200")) return false;
+    if (!profile) return false;
+    // A named 520-byte profile is necessary, but its display name may be
+    // user-defined on the SD card. Verify the actual IBM short-page capture.
+    static uint8_t raw[AS400_MODE_RAW_SIZE];
+    uint32_t len = 0;
+    if (!zpdbReadModeSense(id, raw, sizeof(raw), &len) ||
+        !as400ModeInit(&t.pages, raw, len)) return false;
     uint8_t serial[8];
     // Require a configured, stable, unique serial. No SCSI ID is part of
     // the key; a dynamic SCA ID can move without losing the saved pages.
@@ -106,7 +119,7 @@ bool initialize(uint8_t scsiId)
                " missing AS400_DiskSerialNumber; persistence disabled");
         return false;
     }
-    t.identity = hashIdentity(profile, serial);
+    t.identity = hashIdentity(profile, serial, raw, len);
     for (int i = 0; i < S2S_MAX_TARGETS; ++i) {
         if (i != id && targets[i].active &&
             targets[i].identity == t.identity) {
@@ -115,13 +128,6 @@ bool initialize(uint8_t scsiId)
             targets[i].active = false;
             return false;
         }
-    }
-    uint8_t raw[512];
-    uint32_t len = 0;
-    if (!zpdbReadModeSense(id, raw, sizeof(raw), &len) ||
-        !as400ModeInit(&t.pages, raw, len)) {
-        logmsg("-- AS400 MODE: unsupported captured MODE layout on ID ", (int)id);
-        return false;
     }
     t.active = true;
     As400ModePages a = t.pages, b = t.pages;
