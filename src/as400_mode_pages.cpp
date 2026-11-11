@@ -69,17 +69,23 @@ int as400ModeSelect(const As400ModePages *s, int ten, int sp,
         if (!bit || (seen & bit)) return 2;
         seen |= bit;
         const uint8_t *value = data + pos + 2;
-        if (code == 1 && length == 1) next->current[0] = value[0];
+        if (code == 1 && length == 1) {
+            next->current[0] = value[0];
+            if (sp) next->saved[0] = value[0];
+        }
         else if (code == 2 && length == 2) {
             next->current[1] = value[0];
             next->current[2] = value[1];
+            if (sp) {
+                next->saved[1] = value[0];
+                next->saved[2] = value[1];
+            }
         } else if (code == 0 && length == 1 && value[0] == s->raw[21]) {
             // Old IBM page zero: fixed, not an invitation to change a
             // vendor-specific parameter that we do not understand.
         } else return 2;
         pos += length + 2;
     }
-    if (sp) memcpy(next->saved, next->current, sizeof(next->saved));
     return 0;
 }
 int as400ModeSense(const As400ModePages *s, int ten, int dbd, int pc,
