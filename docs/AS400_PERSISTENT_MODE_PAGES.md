@@ -5,9 +5,9 @@ separate from read-only ZPDB profiles and does not make VPD writable.
 
 ## Scope and opt-in
 
-The default is **off**. On a spare SD card, for a profiled fixed disk using the
-captured `IBM_0671S15_200` 520-byte profile and a unique stable
-`AS400_DiskSerialNumber` override:
+The default is **off**. On a spare SD card, for a profiled fixed disk using an
+IBM 0671S15-compatible captured 22-byte MODE SENSE structure, 520-byte block
+geometry, and a unique stable `AS400_DiskSerialNumber` override:
 
 ```ini
 [SCSI]
@@ -24,7 +24,7 @@ AS400_DiskSerialNumber = "00176202"
 
 Actual image names, device settings, and disk contents remain unchanged.
 Keep existing, hardware-verified INI settings. This is a **single global
-opt-in**, restricted internally to the specified captured disk profile.
+opt-in**, restricted internally to a recognized 22-byte IBM short-page capture.
 It does not enable saved parameters for tape or other disk models.
 
 The currently modeled short pages are captured PS=1 pages `01 01 XX` and
@@ -54,7 +54,8 @@ need additional traces.
 
 Two alternating 32-byte CRC-protected records live under `/as400_mode/`
 on the SD filesystem. Their names are a stable 64-bit FNV-1a identity hash of
-the *profile name and configured eight-byte IBM serial*, plus the suffix
+the *profile name, configured eight-byte IBM serial, and immutable 22-byte
+MODE SENSE baseline*, plus the suffix
 `a` or `b`. The active record has the newest valid sequence number.
 Writes go to the **inactive** file, are synced/closed and independently
 read back before returning GOOD. Torn/corrupted records, wrong version and
@@ -72,7 +73,7 @@ to firmware and ROM drive layout.
 The state is SD-card-local: copying or swapping an image to a second SD card
 does **not** automatically copy saved parameters. Move paired state files
 intentionally if reproducing a saved configuration. Removing both files
-restores captured defaults. Changing the serial/profile intentionally changes
+restores captured defaults. Changing the serial/profile or the captured MODE SENSE baseline intentionally changes
 the persistent identity. Do not reuse the same profile + serial for two
 simultaneously presented disks. The feature checks this and rejects duplicate
 identity use when detected. Avoid changing identity while ZuluSCSI is running.
