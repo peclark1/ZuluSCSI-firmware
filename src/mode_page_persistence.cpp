@@ -159,6 +159,17 @@ static void initialize()
         else if(!erased && !modePageJournalOwned(sector)) g_foreign=true;
     }
     g_slot=modePageNewest(4,valid,seq);
+    // Owning one sector does NOT establish ownership of all four. An old
+    // firmware or another application may have written adjacent settings
+    // sectors. Never erase an unfamiliar sector merely because a valid
+    // journal was found elsewhere. Only the separate explicit flash-region
+    // initialization option permits reclamation of foreign settings data.
+    if(g_foreign && !g_allowInit) {
+        logmsg("-- MODE flash: foreign data present in reserved settings area; "
+               "persistence disabled until explicitly authorized");
+        g_enabled=false;
+        return;
+    }
     if(g_slot>=0) {
         if(!readSector((unsigned)g_slot,sector) ||
             !modePageDecodeSector(&g_staged.saved,&g_sequence,sector)) {
