@@ -183,6 +183,15 @@ int modePageSense(const ModePageState *state, uint64_t identity, int pc,
     }
     return 1;
 }
+int modePageGet(const ModePageTable *table,uint64_t identity,int page,
+                uint8_t *out,size_t capacity)
+{
+    if(!table||!out) return -1;
+    const uint8_t *p=findEntry(table,identity,page);
+    if(!p || p[9]>capacity) return -1;
+    memcpy(out,p+10,p[9]);
+    return p[9];
+}
 int modePageEncodeSector(const ModePageTable *saved, uint32_t sequence,
                          uint8_t sector[MODE_PAGE_FLASH_SECTOR])
 {
