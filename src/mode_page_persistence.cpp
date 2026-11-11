@@ -155,7 +155,7 @@ static void initialize()
             if(g_sector[i]!=0xff) { erased=false; break; }
         if(modePageDecodeSector(&g_candidate,&seq[slot],g_sector))
             valid[slot]=1;
-        else if(!erased) g_foreign=true;
+        else if(!erased && !modePageJournalOwned(g_sector)) g_foreign=true;
     }
     g_slot=modePageNewest(4,valid,seq);
     if(g_slot>=0) {
