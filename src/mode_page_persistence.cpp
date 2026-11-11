@@ -210,23 +210,22 @@ extern "C" void modePersistenceReset(void)
 }
 extern "C" int modePersistenceEnabled(uint8_t id)
 {
-    initialize();
-    return g_enabled && matchesDevice(id);
+    // Initialization is done at the boot/rescan hook, never in the middle
+    // of DATA OUT: it uses scsiDev.data as scratch for flash reads.
+    return g_started && g_enabled && matchesDevice(id);
 }
 extern "C" void modePersistenceSense(uint8_t id,int pc,int ten,
                                       uint8_t *response,int length)
 {
-    initialize();
     uint64_t key;
-    if(g_enabled && identity(id,&key) && length>=0)
+    if(g_started && g_enabled && identity(id,&key) && length>=0)
         modePageSense(&g_pages,key,pc,ten,response,(size_t)length);
 }
 extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
                                       const uint8_t *data,int len,int baseTen,
                                       uint8_t *base,int baseLen)
 {
-    initialize();
-    if(!g_enabled || !matchesDevice(id)) return -1;
+    if(!g_started || !g_enabled || !matchesDevice(id)) return -1;
     uint64_t key;
     if(!identity(id,&key)) return 3;
     if(!pf || len<0 || baseLen<0) return 2;
