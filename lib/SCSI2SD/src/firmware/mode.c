@@ -903,10 +903,13 @@ static void doModeSelect(void)
 		// first; MODE SENSE uses the same scsiDev.data buffer.
 		if ((scsiDev.cdb[1]&0x10) && modePersistenceEnabled(scsiDev.target->targetId))
 		{
-			static uint8_t selectData[4096]; // bounded by the flash snapshot sector
+			// DATA OUT is complete: the upper half of scsiDev.data can hold
+			// MODE SELECT input while the lower half is used for an immutable
+			// MODE SENSE baseline. No new 4096-byte BSS buffer is needed.
+			uint8_t *selectData=scsiDev.data+(SCSI2SD_BUFFER_SIZE/2);
 			int selectLen=scsiDev.dataLen;
-			if (selectLen<0 || selectLen>(int)sizeof(selectData)) goto badLength;
-			memcpy(selectData,scsiDev.data,selectLen);
+			if (selectLen<0 || selectLen>SCSI2SD_BUFFER_SIZE/2) goto badLength;
+			memmove(selectData,scsiDev.data,selectLen);
 			// Captured AS/400 short-page data is served by MODE SENSE(6).
 			// Other disks may return longer standard MODE SENSE(10) data.
 			int baseTen=1;
@@ -915,10 +918,11 @@ static void doModeSelect(void)
 				scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
 				baseTen=0;
 #endif
-			doModeSense(!baseTen,0,2,0x3f,SCSI2SD_BUFFER_SIZE);
+			doModeSense(!baseTen,0,2,0x3f,SCSI2SD_BUFFER_SIZE/2);
 			if (scsiDev.status != GOOD || scsiDev.phase != DATA_IN)
 				goto out;
 			int baselineLen=scsiDev.dataLen;
+			if (baselineLen > SCSI2SD_BUFFER_SIZE/2) goto badLength;
 			int result=modePersistenceSelect(scsiDev.target->targetId,
 				scsiDev.cdb[0] == 0x55,
 				(scsiDev.cdb[1]&0x10)!=0,(scsiDev.cdb[1]&1)!=0,
