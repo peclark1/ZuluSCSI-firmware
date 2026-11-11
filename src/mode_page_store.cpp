@@ -158,13 +158,16 @@ int modePageSense(const ModePageState *state, uint64_t identity, int pc,
                   int ten, uint8_t *sense, size_t len)
 {
     if(!state||!sense||pc<0||pc>3) return 0;
-    if(pc==2) return 1; // immutable baseline; never overlay defaults.
     size_t pos;
     if(!parseSenseStart(ten,sense,len,&pos)) return 0;
     while(pos<len) {
         if(len-pos<2) return 0;
         unsigned n=sense[pos+1];
         if(n>len-pos-2 || (sense[pos]&0x40)) return 0;
+        // The opt-in overlay supports saving page-format parameters on
+        // generic disks too, so advertise PS=1 without changing page data.
+        sense[pos] |= 0x80;
+        if(pc==2) { pos+=2+n; continue; } // immutable DEFAULT values
         const uint8_t *value=nullptr;
         if(pc==0) value=findEntry(&state->current,identity,sense[pos]&0x3f);
         if(pc==3) value=findEntry(&state->saved,identity,sense[pos]&0x3f);
