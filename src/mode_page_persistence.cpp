@@ -29,9 +29,9 @@ static_assert(PLATFORM_FLASH_PROGRAM_SIZE == 256,
 namespace {
 static ModePageState g_pages;
 static ModePageState g_staged;
-static ModePageTable g_candidate;
-static uint8_t g_sector[MODE_PAGE_FLASH_SECTOR];
-static uint8_t g_verify[MODE_PAGE_FLASH_SECTOR];
+// The existing 64 KiB scsiDev.data command buffer supplies scratch space
+// during initialization and after MODE SELECT validation. No extra 12 KiB
+// journal-sector/verification/candidate buffers are kept resident.
 static bool g_started;
 static bool g_enabled;
 static bool g_foreign;
@@ -145,25 +145,26 @@ static void initialize()
     uint8_t valid[4]={0,0,0,0};
     uint32_t seq[4]={0,0,0,0};
     g_foreign=false;
+    uint8_t *sector=scsiDev.data;
     for(unsigned slot=0;slot<4;slot++) {
-        if(!readSector(slot,g_sector)) {
+        if(!readSector(slot,sector)) {
             logmsg("-- MODE flash: settings-sector read failure, disabling persistence");
             g_enabled=false; return;
         }
         bool erased=true;
         for(unsigned i=0;i<MODE_PAGE_FLASH_SECTOR;i++)
-            if(g_sector[i]!=0xff) { erased=false; break; }
-        if(modePageDecodeSector(&g_candidate,&seq[slot],g_sector))
+            if(sector[i]!=0xff) { erased=false; break; }
+        if(modePageDecodeSector(&g_staged.saved,&seq[slot],sector))
             valid[slot]=1;
-        else if(!erased && !modePageJournalOwned(g_sector)) g_foreign=true;
+        else if(!erased && !modePageJournalOwned(sector)) g_foreign=true;
     }
     g_slot=modePageNewest(4,valid,seq);
     if(g_slot>=0) {
-        if(!readSector((unsigned)g_slot,g_sector) ||
-            !modePageDecodeSector(&g_candidate,&g_sequence,g_sector)) {
+        if(!readSector((unsigned)g_slot,sector) ||
+            !modePageDecodeSector(&g_staged.saved,&g_sequence,sector)) {
             g_enabled=false; return;
         }
-        modePageColdBoot(&g_pages,&g_candidate);
+        modePageColdBoot(&g_pages,&g_staged.saved);
         logmsg("-- MODE flash: restored saved pages; journal slot ",
                g_slot, ", sequence ", (int)g_sequence);
     } else {
@@ -178,24 +179,20 @@ static void initialize()
         logmsg("-- MODE flash: no saved pages; starting with defaults");
     }
 }
-static bool save(const ModePageTable *next)
+static bool save(const ModePageTable *next, uint8_t *sector)
 {
     // The inactive slot is erased first, leaving the previous valid sector
     // intact until a new, checksummed snapshot has been verified.
     unsigned newSlot=(unsigned)(g_slot+1)&3u;
     const uint32_t seq=g_sequence+1;
-    if(!modePageEncodeSector(next,seq,g_sector)) return false;
+    if(!modePageEncodeSector(next,seq,sector)) return false;
     const uint32_t offset=PLATFORM_FLASH_SETTINGS_OFFSET+
         newSlot*MODE_PAGE_FLASH_SECTOR;
     if(!platform_flash_erase(offset,MODE_PAGE_FLASH_SECTOR)) return false;
-    if(!platform_flash_program(offset,g_sector,MODE_PAGE_FLASH_SECTOR))
+    if(!platform_flash_program(offset,sector,MODE_PAGE_FLASH_SECTOR))
         return false;
-    if(!readSector(newSlot,g_verify)) return false;
-    uint32_t checkSeq=0;
-    if(!modePageDecodeSector(&g_candidate,&checkSeq,g_verify) ||
-        checkSeq!=seq || g_candidate.used!=next->used ||
-        memcmp(g_candidate.bytes,next->bytes,next->used))
-        return false;
+    if(!readSector(newSlot,sector)) return false;
+    if(!modePageVerifySector(next,seq,sector)) return false;
     g_slot=(int)newSlot;
     g_sequence=seq;
     return true;
@@ -226,7 +223,7 @@ extern "C" void modePersistenceSense(uint8_t id,int pc,int ten,
 }
 extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
                                       const uint8_t *data,int len,int baseTen,
-                                      const uint8_t *base,int baseLen)
+                                      uint8_t *base,int baseLen)
 {
     initialize();
     if(!g_enabled || !matchesDevice(id)) return -1;
@@ -238,7 +235,9 @@ extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
     if(r) return r;
     if(sp && (g_staged.saved.used!=g_pages.saved.used ||
        memcmp(g_staged.saved.bytes,g_pages.saved.bytes,g_staged.saved.used))) {
-        if(!save(&g_staged.saved)) {
+        // The baseline has been fully consumed by modePageSelect and can
+        // safely become the 4096-byte flash program/readback buffer.
+        if(!save(&g_staged.saved,base)) {
             logmsg("-- MODE flash: journal save failed on ID ",(int)id);
             return 3;
         }
@@ -251,6 +250,6 @@ extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
 extern "C" void modePersistenceReset(void) {}
 extern "C" int modePersistenceEnabled(uint8_t) { return 0; }
 extern "C" void modePersistenceSense(uint8_t,int,int,uint8_t*,int) {}
-extern "C" int modePersistenceSelect(uint8_t,int,int,int,const uint8_t*,int,int,const uint8_t*,int)
+extern "C" int modePersistenceSelect(uint8_t,int,int,int,const uint8_t*,int,int,uint8_t*,int)
 { return -1; }
 #endif
