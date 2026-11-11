@@ -902,7 +902,7 @@ static void doModeSelect(void)
 		// first; MODE SENSE uses the same scsiDev.data buffer.
 		if (modePersistenceEnabled(scsiDev.target->targetId))
 		{
-			static uint8_t selectData[SCSI2SD_BUFFER_SIZE];
+			static uint8_t selectData[4096]; // bounded by the flash snapshot sector
 			int selectLen=scsiDev.dataLen;
 			if (selectLen<0 || selectLen>(int)sizeof(selectData)) goto badLength;
 			memcpy(selectData,scsiDev.data,selectLen);
