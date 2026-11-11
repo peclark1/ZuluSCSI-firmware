@@ -139,6 +139,12 @@ int modePageSelect(const ModePageState *old, uint64_t identity,
         const uint8_t *current=findEntry(&next->current,identity,code);
         if(current && current[9]==baseN) memcpy(full,current+10,baseN);
         memcpy(full,input+pos+2,n);
+        // Preserve the existing SCSI-2 MODE SELECT disconnect/reconnect
+        // validation: DTDC != 0 and maximum burst size != 0 is illegal.
+        // The 14-byte page body has maxBurst at bytes 8-9, DTDC at byte 10.
+        if(code==2 && baseN==14 &&
+           (full[10]&3) && (full[8] || full[9]))
+            return 2;
         if(code==3 && baseN>=12 &&
            (full[10]!=base[10] || full[11]!=base[11]))
             return 2; // FORMAT DEVICE page sector size remains invariant
