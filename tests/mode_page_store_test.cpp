@@ -138,6 +138,15 @@ int main()
     static uint8_t slots[4][MODE_PAGE_FLASH_SECTOR];
     for(unsigned i=0;i<4;i++) memset(slots[i],0xff,sizeof(slots[i]));
     CHECK(modePageEncodeSector(&state.saved,0xffffffffu,slots[0]));
+    CHECK(modePageJournalOwned(slots[0]));
+    uint8_t blank[MODE_PAGE_FLASH_SECTOR];
+    memset(blank,0xff,sizeof(blank));
+    CHECK(!modePageJournalOwned(blank));
+    blank[0]='Z';
+    CHECK(modePageJournalOwned(blank)); // power lost after first programmed byte
+    blank[0]=0x57;
+    CHECK(!modePageJournalOwned(blank)); // unknown settings owner
+
     ModePageTable restored={};uint32_t seq=0;
     CHECK(modePageDecodeSector(&restored,&seq,slots[0]));
     CHECK(seq==0xffffffffu && restored.used==state.saved.used);
