@@ -30,6 +30,7 @@
 #ifdef PLATFORM_AS400
 #include <as400_values.h>
 #include <custom_vendor_inquiry.h>
+#include <as400_mode_persistence.h>
 #endif
 
 #include <string.h>
@@ -336,6 +337,27 @@ static void pageIn(int pc, int dataIdx, const uint8_t* pageData, int pageLen)
 static void doModeSense(int sixByteCmd, int dbd, int pc, int pageCode, int allocLength)
 {
 #ifdef PLATFORM_AS400
+    // Only a specifically opted-in IBM 0671S15 profile uses the mutable
+    // saved/current/default/changeable model. The captured ZPDB is untouched.
+    if (scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
+    {
+        int n = as400ModePersistenceSense(scsiDev.target->targetId,
+                    !sixByteCmd, dbd, pc, pageCode, scsiDev.data, 256);
+        if (n >= 0)
+        {
+            scsiDev.dataLen = n < allocLength ? n : allocLength;
+            scsiDev.phase = DATA_IN;
+            return;
+        }
+        if (n == -2)
+        {
+            scsiDev.status = CHECK_CONDITION;
+            scsiDev.target->sense.code = ILLEGAL_REQUEST;
+            scsiDev.target->sense.asc = INVALID_FIELD_IN_CDB;
+            scsiDev.phase = STATUS;
+            return;
+        }
+    }
 	// The B10 SCSI-1 TDC 3600 supports its captured page-zero response,
 	// not the newer IBM 4100 page 0x10 and all-pages convention.
 	if (sixByteCmd && scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 &&
@@ -895,6 +917,31 @@ static void doModeSelect(void)
 			idx_check += 2 + pageLen;
 		}
 
+#ifdef PLATFORM_AS400
+        if (scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
+        {
+            int as400Result = as400ModePersistenceSelect(scsiDev.target->targetId,
+                                scsiDev.cdb[0] == 0x55,
+                                (scsiDev.cdb[1] & 0x10) != 0,
+                                (scsiDev.cdb[1] & 0x01) != 0,
+                                scsiDev.data, scsiDev.dataLen);
+            if (as400Result != -1)
+            {
+                if (as400Result == 1) goto badLength;
+                if (as400Result == 2) goto bad;
+                if (as400Result == 3)
+                {
+                    scsiDev.status = CHECK_CONDITION;
+                    scsiDev.target->sense.code = HARDWARE_ERROR;
+                    scsiDev.target->sense.asc = INTERNAL_TARGET_FAILURE;
+                }
+                // This path never changes liveCfg.bytesPerSector, the image,
+                // or the immutable IBM profile.
+                goto out;
+            }
+        }
+#endif
+
 		// Store device-specific parameter byte (byte 2 for 6-byte, byte 3 for 10-byte)
 		// For sequential devices this contains buffered mode in bits 6-4
 		if (scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL)
@@ -1106,7 +1153,6 @@ int scsiModeCommand()
 		int allocLength =
 			(((uint16_t) scsiDev.cdb[7]) << 8) +
 			scsiDev.cdb[8];
-		doModeSense(0, dbd, pc, pageCode, allocLength);
 		if (scsiDev.cdb[3] != 0)
 		{
 			scsiDev.status = CHECK_CONDITION;
