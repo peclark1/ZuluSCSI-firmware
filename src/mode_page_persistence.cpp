@@ -34,6 +34,7 @@ static ModePageState g_staged;
 // journal-sector/verification/candidate buffers are kept resident.
 static bool g_started;
 static bool g_enabled;
+static bool g_requested; // persisted feature explicitly requested in INI
 static bool g_foreign;
 static bool g_allowInit;
 static int g_slot = -1;
@@ -139,8 +140,9 @@ static void initialize()
 {
     if(g_started) return;
     g_started=true;
-    g_enabled=ini_getbool("SCSI","PersistModePages",false,CONFIGFILE);
-    if(!g_enabled) return;
+    g_requested=ini_getbool("SCSI","PersistModePages",false,CONFIGFILE);
+    g_enabled=g_requested;
+    if(!g_requested) return;
     g_allowInit=ini_getbool("SCSI","PersistModeFlashInitialize",false,CONFIGFILE);
     uint8_t valid[4]={0,0,0,0};
     uint32_t seq[4]={0,0,0,0};
@@ -215,7 +217,8 @@ extern "C" void modePersistenceReset(void)
     memset(&g_staged,0,sizeof(g_staged));
     memset(g_keysUsed,0,sizeof(g_keysUsed));
     memset(g_runtimeApplied,0,sizeof(g_runtimeApplied));
-    g_started=false; g_enabled=false; g_foreign=false; g_allowInit=false;
+    g_started=false; g_enabled=false; g_requested=false;
+    g_foreign=false; g_allowInit=false;
     g_slot=-1; g_sequence=0;
     initialize();
 }
@@ -223,7 +226,10 @@ extern "C" int modePersistenceEnabled(uint8_t id)
 {
     // Initialization is done at the boot/rescan hook, never in the middle
     // of DATA OUT: it uses scsiDev.data as scratch for flash reads.
-    return g_started && g_enabled && matchesDevice(id);
+    // Route SAVE PAGES requests through persistence even if initialization
+    // failed: returning GOOD from the legacy path would falsely acknowledge
+    // a save that cannot survive power-off.
+    return g_started && g_requested && matchesDevice(id);
 }
 extern "C" void modePersistenceSense(uint8_t id,int pc,int ten,
                                       uint8_t *response,int length)
@@ -236,7 +242,8 @@ extern "C" int modePersistenceSelect(uint8_t id,int ten,int pf,int sp,
                                       const uint8_t *data,int len,int baseTen,
                                       uint8_t *base,int baseLen)
 {
-    if(!g_started || !g_enabled || !matchesDevice(id)) return -1;
+    if(!g_started || !g_requested || !matchesDevice(id)) return -1;
+    if(!g_enabled) return 3; // requested but flash unavailable/foreign
     uint64_t key;
     if(!identity(id,&key)) return 3;
     if(!pf || len<0 || baseLen<0) return 2;
