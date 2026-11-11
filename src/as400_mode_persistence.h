@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 void as400ModePersistenceReset(void);
+// Warm the per-device saved-state cache once after INI/profile binding.
+void as400ModePersistenceWarm(uint8_t id);
 // -1: feature not enabled/applicable; -2: unsupported page; >=0: full response.
 int as400ModePersistenceSense(uint8_t id, int ten, int dbd, int pc,
                               int page, uint8_t *out, int capacity);
