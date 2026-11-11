@@ -46,6 +46,8 @@ static int putEntry(ModePageTable *t, uint64_t key, int page,
         unsigned n=entrySize(p);
         if (n > t->used-at) return 2;
         if (entryKey(p)==key && (p[8]&0x3f)==page) {
+            if (p[9]==count && !memcmp(p+10,value,count))
+                return 0; // identical SP=1 must not wear flash or reorder state
             // Leave other device/page entries intact.
             memmove(t->bytes+at,t->bytes+at+n,t->used-at-n);
             t->used-=n;
