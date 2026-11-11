@@ -24,6 +24,7 @@
 #include "disk.h"
 #include "inquiry.h"
 #include "ZuluSCSI_mode.h"
+#include <mode_page_persistence.h>
 #include <ZuluSCSI_platform_config.h>
 #include "toolbox.h"
 
@@ -364,16 +365,14 @@ static void doModeSense(int sixByteCmd, int dbd, int pc, int pageCode, int alloc
 		// A loaded AS/400 disk profile (see custom_vendor_inquiry.cpp) can
 		// supply its own captured MODE SENSE response; fall back to the
 		// single built-in capture if none is configured for this target.
-		uint16_t customLen = 0;
-		if (getCustomModeSense(scsiDev.target->cfg->scsiId, scsiDev.data, &customLen))
+		uint16_t fullLength = 0;
+		if (!getCustomModeSense(scsiDev.target->cfg->scsiId, scsiDev.data, &fullLength))
 		{
-			scsiDev.dataLen = customLen > allocLength ? allocLength : customLen;
+			fullLength = as400_mode_sense_all_pages_len;
+			memcpy(scsiDev.data, as400_mode_sense_all_pages, fullLength);
 		}
-		else
-		{
-			scsiDev.dataLen = as400_mode_sense_all_pages_len > allocLength ? allocLength : as400_mode_sense_all_pages_len;
-			memcpy(scsiDev.data, as400_mode_sense_all_pages, scsiDev.dataLen);
-		}
+		modePersistenceSense(scsiDev.target->targetId, pc, 0, scsiDev.data, fullLength);
+		scsiDev.dataLen = fullLength > allocLength ? allocLength : fullLength;
 		scsiDev.phase = DATA_IN;
 		return;
 	}
@@ -847,6 +846,8 @@ static void doModeSense(int sixByteCmd, int dbd, int pc, int pageCode, int alloc
 			scsiDev.data[1] = (idx - 2);
 		}
 
+		modePersistenceSense(scsiDev.target->targetId, pc, !sixByteCmd,
+		                     scsiDev.data, idx);
 		scsiDev.dataLen = idx > allocLength ? allocLength : idx;
 		scsiDev.phase = DATA_IN;
 	}
@@ -896,6 +897,48 @@ static void doModeSelect(void)
 		}
 
 		// Store device-specific parameter byte (byte 2 for 6-byte, byte 3 for 10-byte)
+		// For direct-access disks, build an immutable baseline using our
+		// normal MODE SENSE handler, then validate and stage all pages before
+		// committing a snapshot to flash. Copy the incoming parameter list
+		// first; MODE SENSE uses the same scsiDev.data buffer.
+		if ((scsiDev.cdb[1]&0x10) && modePersistenceEnabled(scsiDev.target->targetId))
+		{
+			// DATA OUT is complete: the upper half of scsiDev.data can hold
+			// MODE SELECT input while the lower half is used for an immutable
+			// MODE SENSE baseline. No new 4096-byte BSS buffer is needed.
+			uint8_t *selectData=scsiDev.data+(SCSI2SD_BUFFER_SIZE/2);
+			int selectLen=scsiDev.dataLen;
+			if (selectLen<0 || selectLen>SCSI2SD_BUFFER_SIZE/2) goto badLength;
+			memmove(selectData,scsiDev.data,selectLen);
+			// Captured AS/400 short-page data is served by MODE SENSE(6).
+			// Other disks may return longer standard MODE SENSE(10) data.
+			int baseTen=1;
+#ifdef PLATFORM_AS400
+			if (scsiDev.target->cfg->quirks == S2S_CFG_QUIRKS_AS400 &&
+				scsiDev.target->cfg->deviceType == S2S_CFG_FIXED)
+				baseTen=0;
+#endif
+			doModeSense(!baseTen,0,2,0x3f,SCSI2SD_BUFFER_SIZE/2);
+			if (scsiDev.status != GOOD || scsiDev.phase != DATA_IN)
+				goto out;
+			int baselineLen=scsiDev.dataLen;
+			if (baselineLen > SCSI2SD_BUFFER_SIZE/2) goto badLength;
+			int result=modePersistenceSelect(scsiDev.target->targetId,
+				scsiDev.cdb[0] == 0x55,
+				(scsiDev.cdb[1]&0x10)!=0,(scsiDev.cdb[1]&1)!=0,
+				selectData,selectLen,baseTen,scsiDev.data,baselineLen);
+			if (result==1) goto badLength;
+			if (result==2) goto bad;
+			if (result==3)
+			{
+				scsiDev.status=CHECK_CONDITION;
+				scsiDev.target->sense.code=HARDWARE_ERROR;
+				scsiDev.target->sense.asc=INTERNAL_TARGET_FAILURE;
+			}
+			goto out;
+		}
+
+
 		// For sequential devices this contains buffered mode in bits 6-4
 		if (scsiDev.target->cfg->deviceType == S2S_CFG_SEQUENTIAL)
 		{
@@ -1106,7 +1149,6 @@ int scsiModeCommand()
 		int allocLength =
 			(((uint16_t) scsiDev.cdb[7]) << 8) +
 			scsiDev.cdb[8];
-		doModeSense(0, dbd, pc, pageCode, allocLength);
 		if (scsiDev.cdb[3] != 0)
 		{
 			scsiDev.status = CHECK_CONDITION;

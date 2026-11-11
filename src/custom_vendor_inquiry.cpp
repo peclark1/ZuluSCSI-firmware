@@ -20,6 +20,7 @@
 // Custom SCSI inquiry data (VPD/SPD) from INI configuration
 
 #include "custom_vendor_inquiry.h"
+#include "mode_page_persistence.h"
 
 #include "zpdb_profiles.h"
 #include "ZuluSCSI_log.h"
@@ -270,6 +271,7 @@ static const uint8_t *findBuiltinVPD(const uint8_t (*pages)[255], size_t count,
 // data differing across multiple IDs at once.
 void resetCustomInquiryData()
 {
+    modePersistenceReset();
     zpdbUnbindAll();
     memset(g_builtin, 0, sizeof(g_builtin));
 #ifdef PLATFORM_AS400

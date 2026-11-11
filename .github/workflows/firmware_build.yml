@@ -40,6 +40,7 @@ jobs:
         run: |
           cd ZuluSCSI
           python3 utils/test_as400_mode_select_length.py
+          python3 utils/test_mode_page_store.py
           python3 utils/test_e11_tapes.py
 
       - name: Build firmware
