@@ -138,6 +138,8 @@ int main()
     static uint8_t slots[4][MODE_PAGE_FLASH_SECTOR];
     for(unsigned i=0;i<4;i++) memset(slots[i],0xff,sizeof(slots[i]));
     CHECK(modePageEncodeSector(&state.saved,0xffffffffu,slots[0]));
+    CHECK(modePageVerifySector(&state.saved,0xffffffffu,slots[0]));
+    CHECK(!modePageVerifySector(&state.saved,0,slots[0]));
     CHECK(modePageJournalOwned(slots[0]));
     uint8_t blank[MODE_PAGE_FLASH_SECTOR];
     memset(blank,0xff,sizeof(blank));
