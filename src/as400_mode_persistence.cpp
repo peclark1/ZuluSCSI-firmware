@@ -43,7 +43,8 @@ uint64_t hashIdentity(const char *profile, const uint8_t serial[8])
 void pathFor(uint64_t identity, int slot, char out[48])
 {
     static const char hex[] = "0123456789abcdef";
-    memcpy(out, DIR "/", sizeof(DIR)); // includes slash, excludes final NUL
+    memcpy(out, DIR, sizeof(DIR) - 1);
+    out[sizeof(DIR) - 1] = '/';
     const size_t start = sizeof(DIR);
     for (int i = 0; i < 16; ++i)
         out[start + i] = hex[(identity >> (60 - 4 * i)) & 15];
