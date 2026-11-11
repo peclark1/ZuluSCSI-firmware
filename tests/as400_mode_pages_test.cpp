@@ -87,11 +87,23 @@ int main()
     CHECK(as400ModeSense(&a,0,0,3,1,response,sizeof(response)) == 15);
     CHECK(response[14] == 0x0c);
 
+    // SP=1 of *only page 02* must not leak the transient page 01 state.
+    uint8_t page2only[] = {0,0,0,0, 2,2,7,0x80};
+    CHECK(as400ModeSelect(&a,0,1,page2only,sizeof(page2only),&next) == 0);
+    CHECK(next.current[0] == 0x55 && next.saved[0] == 0x0c);
+    CHECK(next.current[1] == 7 && next.saved[1] == 7);
+    a = next;
+    uint8_t page1only[] = {0,0,0,0, 1,1,0x0d};
+    CHECK(as400ModeSelect(&a,0,1,page1only,sizeof(page1only),&next) == 0);
+    CHECK(next.current[0] == 0x0d && next.saved[0] == 0x0d);
+    CHECK(next.current[1] == 7 && next.saved[1] == 7);
+    a = next;
+
     // Reboot: only saved parameters survive, not SP=0 transient changes.
     as400ModeEncode(&a,keyA,7,recordA);
     CHECK(as400ModeInit(&boot,sense6,sizeof(sense6)));
     CHECK(as400ModeDecode(&boot,keyA,recordA,&sequence));
-    CHECK(sequence == 7 && boot.current[0] == 0x0c && boot.saved[1] == 3);
+    CHECK(sequence == 7 && boot.current[0] == 0x0d && boot.saved[1] == 7);
     CHECK(!as400ModeDecode(&boot,keyB,recordA,&sequence));
 
     // Independent second drive with the same immutable profile.
@@ -149,7 +161,7 @@ int main()
     // Active slot A still provides valid durable state after a torn B write.
     CHECK(as400ModeInit(&boot,sense6,sizeof(sense6)));
     CHECK(as400ModeDecode(&boot,keyA,recordA,&sequence));
-    CHECK(boot.saved[0] == 0x0c && boot.current[0] == 0x0c);
+    CHECK(boot.saved[0] == 0x0d && boot.current[0] == 0x0d);
 
     printf("PASS: %d IBM 0671S15 MODE SELECT/SENSE, persistence, multi-target and fault assertions\n",count);
     return 0;
