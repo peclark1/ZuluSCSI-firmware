@@ -110,6 +110,12 @@ int main()
     CHECK(modePageSelect(&state,id5,1,1,select10,sizeof(select10),
                          1,generic,gn,&staged)==0);
     state=staged;
+    // Repeating an identical SP=1 command must not reorder records or
+    // trigger an unnecessary flash erase/program cycle.
+    CHECK(modePageSelect(&state,id5,1,1,select10,sizeof(select10),
+                         1,generic,gn,&staged)==0);
+    CHECK(staged.saved.used==state.saved.used);
+    CHECK(!memcmp(staged.saved.bytes,state.saved.bytes,state.saved.used));
 
     // Mode page 03 remains writable only where geometry is invariant.
     uint8_t fmt[]={0,0,0,0, 3,12,0,0,0,0,0,0,0,0,0,0,2,0};
