@@ -20,8 +20,8 @@ PersistModePages = 1
 ```
 
 The option is system-wide; there is no profile allowlist or block-size
-allowlist. If an existing board has unfamiliar bytes in the settings region
-and no valid journal, the firmware refuses to overwrite them until the owner
+allowlist. If an existing board has unfamiliar bytes in **any** settings-region sector
+(even alongside a valid journal), the firmware refuses to overwrite them until the owner
 explicitly opts in to initializing that reserved region:
 
 ```ini
