@@ -132,6 +132,17 @@ int as400ModeSense(const As400ModePages *s, int ten, int dbd, int pc,
     }
     return (int)i;
 }
+int as400ModePreferredSlot(int validA, uint32_t seqA,
+                           int validB, uint32_t seqB)
+{
+    if (!validA && !validB) return -1;
+    if (!validA) return 1;
+    if (!validB) return 0;
+    // Modulo-2^32 ordering. Exactly half a sequence space apart is
+    // ambiguous; deterministically prefer A in that unreachable case.
+    const uint32_t delta = seqB - seqA;
+    return (delta != 0 && delta < 0x80000000u) ? 1 : 0;
+}
 void as400ModeEncode(const As400ModePages *s, uint64_t identity,
                      uint32_t sequence, uint8_t out[AS400_MODE_RECORD_SIZE])
 {
