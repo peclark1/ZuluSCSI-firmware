@@ -150,7 +150,7 @@ int main()
     CHECK(newestOf(slots,&restored)==0);
     uint8_t complete[MODE_PAGE_FLASH_SECTOR];
     CHECK(modePageEncodeSector(&state.saved,0,complete));
-    memcpy(slots[1],complete,137); // torn flash programming of inactive slot
+    memcpy(slots[1],complete,MODE_PAGE_RECORD_HEADER+3); // torn in payload
     CHECK(newestOf(slots,&restored)==0);
     memcpy(slots[1],complete,sizeof(complete));
     CHECK(newestOf(slots,&restored)==1); // sequence wraps
