@@ -240,6 +240,20 @@ int modePageDecodeSector(ModePageTable *saved, uint32_t *sequence,
     *sequence=get32(sector+8);
     return 1;
 }
+int modePageJournalOwned(const uint8_t sector[MODE_PAGE_FLASH_SECTOR])
+{
+    if(!sector) return 0;
+    static const uint8_t magic[4]={'Z','M','P','J'};
+    int matched=0;
+    while(matched<4 && sector[matched]==magic[matched]) ++matched;
+    if(matched==4) return 1;
+    // First-time erase followed by a power interruption in the first
+    // program page may leave only a prefix of the four magic bytes.
+    if(matched==0 || sector[matched]!=0xff) return 0;
+    for(unsigned i=(unsigned)matched;i<MODE_PAGE_FLASH_SECTOR;i++)
+        if(sector[i]!=0xff) return 0;
+    return 1;
+}
 int modePageNewest(int count,const uint8_t valid[4],const uint32_t seq[4])
 {
     if(!valid||!seq||count<0||count>4) return -1;
