@@ -59,8 +59,9 @@ MODE SENSE baseline*, plus the suffix
 `a` or `b`. The active record has the newest valid sequence number.
 Writes go to the **inactive** file, are synced/closed and independently
 read back before returning GOOD. Torn/corrupted records, wrong version and
-wrong identity are ignored; the previous valid record remains usable. Without
-a valid record, the captured defaults apply. If no SD write can be verified,
+wrong identity are ignored; the previous valid record remains usable. Saved records are read and validated during the device/profile initialization
+scan, before SCSI commands begin; subsequent MODE SENSE responses use RAM.
+Without a valid record, the captured defaults apply. If no SD write can be verified,
 MODE SELECT with a changed SP=1 value returns CHECK CONDITION/HARDWARE ERROR,
 rather than acknowledging a save that failed.
 
