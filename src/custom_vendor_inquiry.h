@@ -67,8 +67,6 @@ bool getCustomModeSense(uint8_t scsiId, uint8_t *buf, uint16_t *length);
 // so, fills *blockSize/*sectors and returns true -- used to auto-create a
 // correctly-sized image file when none exists yet for a profiled ID.
 bool getAS400ProfileCapacity(uint8_t scsiId, uint32_t *blockSize, uint32_t *sectors);
-// Stable, explicitly configured eight-byte IBM serial (not generic fallback).
-bool getAS400DiskSerialOverride(uint8_t scsiId, uint8_t serial[8]);
 
 // True only when this SCSI ID is presenting one of the captured AS/400 tape
 // identities (Device=AS400_CISC/AS400_PPC) -- i.e. the specific real
