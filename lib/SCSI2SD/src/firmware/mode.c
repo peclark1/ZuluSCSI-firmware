@@ -24,13 +24,13 @@
 #include "disk.h"
 #include "inquiry.h"
 #include "ZuluSCSI_mode.h"
+#include <mode_page_persistence.h>
 #include <ZuluSCSI_platform_config.h>
 #include "toolbox.h"
 
 #ifdef PLATFORM_AS400
 #include <as400_values.h>
 #include <custom_vendor_inquiry.h>
-#include <mode_page_persistence.h>
 #endif
 
 #include <string.h>
