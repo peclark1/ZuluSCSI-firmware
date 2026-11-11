@@ -901,7 +901,7 @@ static void doModeSelect(void)
 		// normal MODE SENSE handler, then validate and stage all pages before
 		// committing a snapshot to flash. Copy the incoming parameter list
 		// first; MODE SENSE uses the same scsiDev.data buffer.
-		if (modePersistenceEnabled(scsiDev.target->targetId))
+		if ((scsiDev.cdb[1]&0x10) && modePersistenceEnabled(scsiDev.target->targetId))
 		{
 			static uint8_t selectData[4096]; // bounded by the flash snapshot sector
 			int selectLen=scsiDev.dataLen;
