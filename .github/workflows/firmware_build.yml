@@ -46,6 +46,11 @@ jobs:
           cd ZuluSCSI
           python3 utils/test_as400_mode_select_length.py
 
+      - name: Test manual tape load policy
+        run: |
+          cd ZuluSCSI
+          python3 utils/test_manual_tape_load.py
+
       - name: Build firmware
         run: |
           cd ZuluSCSI
