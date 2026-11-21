@@ -216,6 +216,7 @@ typedef struct __attribute__((__packed__)) scsi_device_settings_t
     uint8_t tapeImageFormat;
     bool tapeImageLoop; // false: stop after last IMG for a sequential target
     uint8_t as400TapeModel; // 0=IBM 4100 (default), 1=TDC 3600 (opt-in)
+    bool manualTapeLoad; // tape unload leaves medium absent until operator selects an image
 } scsi_device_settings_t;
 
 

@@ -1355,6 +1355,16 @@ void scsiDiskCloseTray(image_config_t &img)
     if (img.ejected)
     {
         uint8_t target = img.scsiId & S2S_CFG_TARGET_ID_BITS;
+        // A host LOAD, INQUIRY, or serial Insert must not revive an unloaded
+        // cartridge in manual mode. Only an explicit image selection reopens
+        // the backing file, which then permits insertion.
+        if (img.deviceType == S2S_CFG_SEQUENTIAL &&
+            g_scsi_settings.getDevice(target)->manualTapeLoad &&
+            !img.file.isOpen())
+        {
+            dbgmsg("------ ManualTapeLoad: no operator-selected medium on ID ", (int)target);
+            return;
+        }
         // A finite tape set remains unloaded after its last IMG entry.
         // Do not silently reinsert the prior volume on INQUIRY or START.
         if (img.deviceType == S2S_CFG_SEQUENTIAL &&
@@ -1436,6 +1446,20 @@ void doPerformEject(image_config_t &img)
     }
     else
     {
+        // In manual tape mode, UNLOAD must neither select another cartridge
+        // nor permit the previous one to be reinserted by host polling.
+        // Keep the SCSI target and image directory available to the media UI.
+        if (img.deviceType == S2S_CFG_SEQUENTIAL &&
+            g_scsi_settings.getDevice(target)->manualTapeLoad)
+        {
+            if (!img.ejected)
+                logmsg("ManualTapeLoad: unloaded tape on SCSI ID ", (int)target,
+                       "; waiting for operator selection");
+            img.ejected = true;
+            img.reinsert_after_eject = false;
+            img.file.close();
+            return;
+        }
         if (!img.ejected)
         {
             blink_cancel();
